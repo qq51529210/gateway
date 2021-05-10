@@ -70,7 +70,7 @@ func (h *DefaultHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	request.URL.Path = path.Join(req.URL.Path[len(h.RoutePath):])
 	request.ContentLength = req.ContentLength
 	// 需要转发的header
-	for k, _ := range h.ForwardHeader {
+	for k := range h.ForwardHeader {
 		v := req.Header.Get(k)
 		if v != "" {
 			request.Header.Set(k, v)
@@ -142,7 +142,7 @@ func NewDefaultHandler(data map[string]interface{}) (http.Handler, error) {
 		for i, v := range a {
 			str, ok = v.(string)
 			if !ok {
-				return nil, fmt.Errorf(`"forwardHeader" item[i] must be string`, i)
+				return nil, fmt.Errorf(`"forwardHeader" item[%d] must be string`, i)
 			}
 			h.ForwardHeader[str] = 1
 		}
