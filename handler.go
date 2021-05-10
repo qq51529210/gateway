@@ -5,172 +5,225 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
+	"sync"
 	"time"
 
 	"github.com/qq51529210/log"
 )
 
 var (
-	// 创建处理器的函数的表
-	handler = make(map[string]NewHandlerFunc)
+	handlerFunc = make(map[string]NewHandlerFunc) // 创建处理器的函数的表
+	contextPool = new(sync.Pool)
 )
 
 func init() {
-	handler[""] = NewDefaultHandler
-	handler["default"] = NewDefaultHandler
-}
-
-// 注册创建处理器的函数，原理和标准库"db/sql"一致
-func RegisterHandler(_type string, _new NewHandlerFunc) {
-	handler[_type] = _new
-}
-
-// 根据data创建相应的处理器
-// data的json结构如下
-// 	{
-// 		"routePath1":{
-// 			"type":"",
-// 			...
-// 		},
-// 		"routePath2":{
-// 			"type":"",
-// 			...
-// 		}
-// 	}
-func NewHandler(data map[string]interface{}) (http.Handler, error) {
-	str, err := hasString(data, "type")
-	if err != nil {
-		return nil, err
+	contextPool.New = func() interface{} {
+		return new(Context)
 	}
-	_new, ok := handler[str]
+}
+
+// 调用链中传递的上下文数据
+type Context struct {
+	Res  http.ResponseWriter
+	Req  *http.Request
+	Data interface{} // 传递数据用的
+}
+
+// 处理接口
+type Handler interface {
+	// 返回false表示失败，终止调用链
+	Handle(*Context) bool
+}
+
+// 创建一个新的拦截器的函数，data是Handler初始化的数据。
+type NewHandlerFunc func(data interface{}) (Handler, error)
+
+// 注册创建Handler的函数，原理和标准库"db/sql"一致。
+// 在其他开发包的init()注册其实现的Handler，就可以通过name动态的创建。
+func RegisterHandler(name string, newFunc NewHandlerFunc) {
+	handlerFunc[name] = newFunc
+}
+
+// 根据data和已经注册的NewHandlerFunc，创建相应的Handler。
+func NewHandler(name string, data interface{}) (Handler, error) {
+	newFunc, ok := handlerFunc[name]
 	if !ok {
 		return NewDefaultHandler(data)
 	}
-	return _new(data)
+	return newFunc(data)
 }
-
-// 创建一个新的拦截器的函数，data是初始化的参数，返回具体的实现，或者错误
-type NewHandlerFunc func(data map[string]interface{}) (http.Handler, error)
 
 // 默认处理，只是转发
 type DefaultHandler struct {
-	RoutePath             string            // 网关的路径
-	ForwardUrl            *url.URL          // 代理的服务地址
-	ForwardHeader         map[string]int    // 需要继续传递的header名称
-	ForwardAdditionHeader map[string]string // 附加的header
-	RequestTimeout        time.Duration     // 调用代理的服务超时，单位毫秒
+	RoutePath              string            // 注册的路由路径
+	RequestUrl             *url.URL          // 转发请求的服务地址
+	RequestTimeout         time.Duration     // 转发请求超时，单位毫秒
+	RequestHeader          map[string]int    // 转发请求header
+	RequestAdditionHeader  map[string]string // 转发请求附加的header
+	ResponseAdditionHeader map[string]string // 转发相应附加的header
 }
 
-func (h *DefaultHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
+// 接口实现
+func (h *DefaultHandler) Handle(c *Context) bool {
+	// 转发的url
 	var request http.Request
-	request.Method = req.Method
+	request.Method = c.Req.Method
 	request.URL = new(url.URL)
-	*request.URL = *h.ForwardUrl
-	request.URL.Path = path.Join(req.URL.Path[len(h.RoutePath):])
-	request.ContentLength = req.ContentLength
-	// 需要转发的header
-	for k := range h.ForwardHeader {
-		v := req.Header.Get(k)
+	*request.URL = *h.RequestUrl
+	request.URL.Path = c.Req.URL.Path[len(h.RoutePath):]
+	request.ContentLength = c.Req.ContentLength
+	// 提取指定转发的header
+	for k := range h.RequestHeader {
+		v := c.Req.Header.Get(k)
 		if v != "" {
 			request.Header.Set(k, v)
 		}
 	}
 	// 附加的header
-	for k, v := range h.ForwardAdditionHeader {
+	for k, v := range h.RequestAdditionHeader {
 		request.Header.Set(k, v)
 	}
-	request.Body = req.Body
-	// 发送
+	request.Body = c.Req.Body
+	// 转发请求
 	client := &http.Client{Timeout: h.RequestTimeout}
 	response, err := client.Do(&request)
 	if err != nil {
 		log.Error(err)
-		return
+		return false
 	}
-	// 提取头部
-	header := res.Header()
+	// 转发结果
+	c.Res.WriteHeader(response.StatusCode)
+	header := c.Res.Header()
 	for k, v := range response.Header {
 		for _, s := range v {
 			header.Add(k, s)
 		}
 	}
-	res.WriteHeader(response.StatusCode)
-	io.Copy(res, response.Body)
+	for k, v := range h.ResponseAdditionHeader {
+		header.Add(k, v)
+	}
+	io.Copy(c.Res, response.Body)
+	return true
 }
 
-// 根据data创建相应的Handler
-// data的json格式
+// 创建DefaultHandler的函数，data的json格式
 // {
 // 	"routePath": "",
-// 	"forwardUrl": "",
-// 	"forwardHeader": ["",""],
-// 	"forwardAdditionHeader": {
-//	 "":"",
-//	 "":""
+// 	"requestUrl": "",
+// 	"requestHeader": [
+// 		"name1",
+// 		"name2",
+// 		...
+// 	],
+// 	"requestAdditionHeader": {
+// 		"name1": "value1",
+// 		"name2": "value2",
+// 		...
 // 	},
-// 	"requestTimeout": 0
+// 	"requestTimeout": 2000,
+// 	"responseAdditionHeader": {
+// 		"name1": "value1",
+// 		"name2": "value2",
+// 		...
+// 	}
 // }
-func NewDefaultHandler(data map[string]interface{}) (http.Handler, error) {
+func NewDefaultHandler(data interface{}) (Handler, error) {
+	initData, ok := data.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf(`init data must be "map[string]interface{}"`)
+	}
 	var err error
 	h := new(DefaultHandler)
-	h.ForwardHeader = make(map[string]int)
-	h.ForwardAdditionHeader = make(map[string]string)
-	// routePath
-	h.RoutePath, err = getString(data, "routePath")
+	h.RequestHeader = make(map[string]int)
+	h.RequestAdditionHeader = make(map[string]string)
+	h.ResponseAdditionHeader = make(map[string]string)
+	// RoutePath
+	h.RoutePath, err = MustGetString(initData, "routePath")
 	if err != nil {
 		return nil, err
 	}
-	// forwardUrl
-	var str string
-	str, err = getString(data, "forwardUrl")
+	// RequestUrl
+	str, err := MustGetString(initData, "requestUrl")
 	if err != nil {
 		return nil, err
 	}
-	_url, err := url.Parse(str)
+	h.RequestUrl, err = url.Parse(str)
 	if err != nil {
-		return nil, fmt.Errorf(`"forwardUrl" %s"`, err.Error())
+		return nil, fmt.Errorf(`"requestUrl" %s`, err.Error())
 	}
-	h.ForwardUrl = _url
-	// forwardHeader
-	val, ok := data["forwardHeader"]
+	// RequestTimeout
+	value, ok := initData["requestTimeout"]
 	if ok {
-		a, ok := val.([]interface{})
+		integer, ok := value.(float64)
 		if !ok {
-			return nil, fmt.Errorf(`"forwardHeader" must be "[]string"`)
+			return nil, fmt.Errorf(`"requestTimeout" must be "int64"`)
+		}
+		h.RequestTimeout = time.Duration(integer) * time.Millisecond
+	}
+	// RequestHeader
+	value, ok = initData["requestHeader"]
+	if ok {
+		a, ok := value.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf(`"requestHeader" must be "[]string"`)
 		}
 		for i, v := range a {
 			str, ok = v.(string)
 			if !ok {
-				return nil, fmt.Errorf(`"forwardHeader" item[%d] must be string`, i)
+				return nil, fmt.Errorf(`"requestHeader" item[%d] must be string`, i)
 			}
-			h.ForwardHeader[str] = 1
+			h.RequestHeader[str] = 1
 		}
 	}
-	// forwardAdditionHeader
-	val, ok = data["forwardAdditionHeader"]
+	// RequestAdditionHeader
+	value, ok = initData["requestAdditionHeader"]
 	if ok {
-		a, ok := val.(map[string]interface{})
+		m, ok := value.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf(`"forwardAdditionHeader" must be "map[string]string"`)
+			return nil, fmt.Errorf(`"requestAdditionHeader" must be "map[string]string"`)
 		}
-		for k, v := range a {
+		for k, v := range m {
 			str, ok = v.(string)
 			if !ok {
-				return nil, fmt.Errorf(`"forwardAdditionHeader"."%s" value must be string`, k)
+				return nil, fmt.Errorf(`"requestAdditionHeader"."%s" value must be string`, k)
 			}
-			h.ForwardAdditionHeader[k] = str
+			h.RequestAdditionHeader[k] = str
 		}
 	}
-	// requestTimeout
-	val, ok = data["requestTimeout"]
+	// ResponseAdditionHeader
+	value, ok = initData["ResponseAdditionHeader"]
 	if ok {
-		a, ok := val.(float64)
+		m, ok := value.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf(`"forwardAdditionHeader"  must be "int64"`)
+			return nil, fmt.Errorf(`"ResponseAdditionHeader" must be "map[string]string"`)
 		}
-		h.RequestTimeout = time.Duration(a) * time.Millisecond
+		for k, v := range m {
+			str, ok = v.(string)
+			if !ok {
+				return nil, fmt.Errorf(`"ResponseAdditionHeader"."%s" value must be string`, k)
+			}
+			h.ResponseAdditionHeader[k] = str
+		}
 	}
 	// 返回
 	return h, nil
+}
+
+// 默认全局拦截，什么也不做
+type DefaultInterceptor struct {
+}
+
+// 接口实现
+func (h *DefaultInterceptor) Handle(c *Context) bool {
+	return true
+}
+
+// 默认匹配失败处理，返回404
+type DefaultNotFound struct {
+}
+
+// 接口实现
+func (h *DefaultNotFound) Handle(c *Context) bool {
+	c.Res.WriteHeader(http.StatusNotFound)
+	return true
 }

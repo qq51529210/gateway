@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,24 +12,22 @@ import (
 
 // 网关app
 type Gateway struct {
-	Listen      string           // 监听地址
-	X509CertPEM string           // X509证书公钥，base64
-	X509KeyPEM  string           // X509证书私钥，base64
-	Interceptor Interceptor      // 拦截函数
-	NotFound    http.HandlerFunc // 匹配失败函数
-	handler     sync.Map         // 转发接口，key:url.Path，value:http.Handler
+	Listen      string    // 监听地址
+	X509CertPEM string    // X509证书公钥，base64
+	X509KeyPEM  string    // X509证书私钥，base64
+	interceptor []Handler // 全局拦截
+	notFound    []Handler // 匹配失败
+	handler     sync.Map  // 处理函数路由表，string:[]Handler
 }
 
 // 开始服务
 func (gw *Gateway) Serve() {
 	// 检查
-	if gw.Interceptor == nil {
-		gw.Interceptor = new(DefaultInterceptor)
+	if len(gw.interceptor) == 0 {
+		gw.interceptor = []Handler{new(DefaultInterceptor)}
 	}
-	if gw.NotFound == nil {
-		gw.NotFound = func(res http.ResponseWriter, req *http.Request) {
-			res.WriteHeader(http.StatusNotFound)
-		}
+	if len(gw.notFound) == 0 {
+		gw.notFound = []Handler{new(DefaultNotFound)}
 	}
 	// 初始化服务
 	server := &http.Server{Handler: gw}
@@ -55,129 +54,218 @@ func (gw *Gateway) Serve() {
 
 // 处理请求
 func (gw *Gateway) ServeHTTP(res http.ResponseWriter, req *http.Request) {
+	ctx := contextPool.Get().(*Context)
+	ctx.Req = req
+	ctx.Res = res
+	ctx.Data = nil
 	// 拦截
-	if gw.Interceptor.Intercept(res, req) {
-		return
+	handler := gw.interceptor
+	for _, h := range handler {
+		if !h.Handle(ctx) {
+			contextPool.Put(ctx)
+			return
+		}
 	}
 	// 获取handler
-	path := topDir(req.URL.Path)
-	handler, ok := gw.handler.Load(path)
+	path := TopDir(req.URL.Path)
+	value, ok := gw.handler.Load(path)
 	if !ok {
-		gw.NotFound(res, req)
-		return
+		handler = gw.notFound
+		for _, h := range handler {
+			if !h.Handle(ctx) {
+				contextPool.Put(ctx)
+				return
+			}
+		}
 	}
 	// 处理
-	handler.(http.Handler).ServeHTTP(res, req)
+	handler = value.([]Handler)
+	for _, h := range handler {
+		if !h.Handle(ctx) {
+			contextPool.Put(ctx)
+			return
+		}
+	}
+	contextPool.Put(ctx)
 }
 
-// 设置路由的handler，每个代理都可以有不同的handler
-func (gw *Gateway) SetHandler(route string, handler http.Handler) error {
-	gw.handler.Store(topDir(path.Clean("/"+route)), handler)
+// 设置处理，每个route对应一组handler
+func (gw *Gateway) SetHandler(route string, handler ...Handler) {
+	gw.handler.Store(TopDir(path.Clean("/"+route)), FilteNilHandler(handler...))
+}
+
+// 设置处理，每个route对应一组handler
+func (gw *Gateway) SetInterceptor(handler ...Handler) {
+	gw.interceptor = FilteNilHandler(handler...)
+}
+
+// 设置处理，每个route对应一组handler
+func (gw *Gateway) SetNotFound(handler ...Handler) {
+	gw.notFound = FilteNilHandler(handler...)
+}
+
+// 设置新的处理，data的json格式
+// {
+// 		"handler1": {
+// 			...
+// 		},
+// 		"handler2": {
+// 			...
+// 		},
+//		...
+// },
+func (gw *Gateway) SetHandlerBy(route string, data map[string]interface{}) error {
+	for k, v := range data {
+		handler, err := NewHandler(k, v)
+		if err != nil {
+			return fmt.Errorf(`"handler"."%s" %s`, k, err.Error())
+		}
+		gw.SetHandler(route, handler)
+	}
 	return nil
 }
 
-// 找出第一层目录，/a/b中的/a
-func topDir(path string) string {
-	for i := 1; i < len(path); i++ {
-		if path[i] == '/' {
-			path = path[:i]
+// 设置新的拦截，data的json格式
+// {
+// 		"name1": {
+//			...
+//		},
+// 		"name2": {
+//			...
+//		}
+// }
+func (gw *Gateway) SetInterceptorBy(data map[string]interface{}) error {
+	for k, v := range data {
+		handler, err := NewHandler(k, v)
+		if err != nil {
+			return fmt.Errorf(`"interceptor"."%s" %s`, k, err.Error())
 		}
+		gw.interceptor = append(gw.interceptor, handler)
 	}
-	return path
+	return nil
 }
 
-// data必须有key为name，value为string类型的数据
-func getString(data map[string]interface{}, name string) (string, error) {
-	val, ok := data[name]
-	if !ok {
-		return "", fmt.Errorf(`"%s" must be define`, name)
-	}
-	str, ok := val.(string)
-	if !ok {
-		return "", fmt.Errorf(`"%s" must be string`, name)
-	}
-	return str, nil
-}
-
-// data如果有key为name的数据，那么value必须string类型
-func hasString(data map[string]interface{}, name string) (string, error) {
-	val, ok := data[name]
-	if ok {
-		str, ok := val.(string)
-		if !ok {
-			return "", fmt.Errorf(`"%s" must be string`, name)
+// 设置新的404，data的json格式
+// {
+// 		"name1": {
+//			...
+//		},
+// 		"name2": {
+//			...
+//		}
+// }
+func (gw *Gateway) SetNotFoundBy(data map[string]interface{}) error {
+	for k, v := range data {
+		handler, err := NewHandler(k, v)
+		if err != nil {
+			return fmt.Errorf(`"notFound"."%s" %s`, k, err.Error())
 		}
-		return str, nil
+		gw.notFound = append(gw.notFound, handler)
 	}
-	return "", nil
+	return nil
 }
 
-// 根据data生成具体的Gateway。
-// data数据结构如下
+// 创建Gateway实例，data的json格式
 // {
 // 	"listen": "",
 // 	"certPem": "",
 // 	"keyPem": "",
 // 	"interceptor": {
-// 		...
+// 		"name1": {
+//			...
+//		},
+// 		"name2": {
+//			...
+//		},
+//		...
+// 	},
+// 	"notfound": {
+// 		"name1": {
+//			...
+//		},
+// 		"name2": {
+//			...
+//		},
+//		...
 // 	},
 // 	"handler": {
-// 		"routePath1":{
-// 			"type":"",
-// 			...
+// 		"/path1": {
+// 			"handler1": {
+// 				...
+// 			},
+// 			"handler2": {
+// 				...
+// 			},
+//			...
 // 		},
-// 		"routePath2":{
-// 			"type":"",
-// 			...
-// 		}
-// 	}
+// 		"/path2": {
+// 			"handler3": {
+// 				...
+// 			},
+//			...
+// 		},
 // }
 func NewGateway(data map[string]interface{}) (*Gateway, error) {
-	var gw Gateway
 	var err error
+	gw := new(Gateway)
 	// Listen
-	gw.Listen, err = getString(data, "listen")
+	gw.Listen, err = MustGetString(data, "listen")
 	if err != nil {
 		return nil, err
 	}
 	// X509CertPEM
-	gw.X509CertPEM, err = hasString(data, "x509CertPEM")
+	gw.X509CertPEM, err = GetString(data, "x509CertPEM")
 	if err != nil {
 		return nil, err
 	}
 	// X509KeyPEM
-	gw.X509KeyPEM, err = hasString(data, "x509KeyPEM")
+	gw.X509KeyPEM, err = GetString(data, "x509KeyPEM")
 	if err != nil {
 		return nil, err
 	}
 	// 拦截器
-	val, ok := data["interceptor"]
-	if !ok {
-		gw.Interceptor, err = NewInterceptor(nil)
-	} else {
-		gw.Interceptor, err = NewInterceptor(val.(map[string]interface{}))
+	value, ok := data["interceptor"]
+	if ok {
+		m, ok := value.(map[string]interface{})
+		if !ok {
+			return nil, errors.New(`"interceptor" value must be "map[string]interface{}"`)
+		}
+		err = gw.SetInterceptorBy(m)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if err != nil {
-		return nil, fmt.Errorf(`"interceptor" %s`, err.Error())
+	// 404
+	value, ok = data["notfound"]
+	if ok {
+		m, ok := value.(map[string]interface{})
+		if !ok {
+			return nil, errors.New(`"notfound" value must be "map[string]interface{}"`)
+		}
+		err = gw.SetNotFoundBy(m)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// 处理器
-	val, ok = data["handler"]
+	value, ok = data["handler"]
 	if ok {
-		m, ok := val.(map[string]interface{})
+		m, ok := value.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf(`"handler" value must be "map[string]interface{}"`)
+			return nil, errors.New(`"handler" value must be "map[string]interface{}"`)
 		}
+		// "/path1": {...}
+		// "/path2": {...}
 		for k, v := range m {
 			d, ok := v.(map[string]interface{})
 			if !ok {
 				return nil, fmt.Errorf(`"handler"."%s" value must be "map[string]interface{}"`, k)
 			}
-			handler, err := NewHandler(d)
+			err = gw.SetHandlerBy(k, d)
 			if err != nil {
-				return nil, fmt.Errorf(`"handler"."%s" %s`, k, err.Error())
+				return nil, err
 			}
-			gw.SetHandler(k, handler)
 		}
 	}
-	return &gw, nil
+	return gw, nil
 }
