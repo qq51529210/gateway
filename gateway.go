@@ -135,12 +135,12 @@ func (gw *Gateway) SetHandlerBy(route string, data map[string]interface{}) error
 //		}
 // }
 func (gw *Gateway) SetInterceptorBy(data map[string]interface{}) error {
-	for k, v := range data {
-		handler, err := NewHandler(k, v)
-		if err != nil {
-			return fmt.Errorf(`"interceptor"."%s" %s`, k, err.Error())
-		}
-		gw.interceptor = append(gw.interceptor, handler)
+	handler, err := gw.newHandler("iterceptor", data)
+	if err != nil {
+		return err
+	}
+	if len(handler) > 0 {
+		gw.interceptor = handler
 	}
 	return nil
 }
@@ -155,14 +155,27 @@ func (gw *Gateway) SetInterceptorBy(data map[string]interface{}) error {
 //		}
 // }
 func (gw *Gateway) SetNotFoundBy(data map[string]interface{}) error {
-	for k, v := range data {
-		handler, err := NewHandler(k, v)
-		if err != nil {
-			return fmt.Errorf(`"notFound"."%s" %s`, k, err.Error())
-		}
-		gw.notFound = append(gw.notFound, handler)
+	handler, err := gw.newHandler("notFound", data)
+	if err != nil {
+		return err
+	}
+	if len(handler) > 0 {
+		gw.notFound = handler
 	}
 	return nil
+}
+
+// SetInterceptorBy和SetNotFoundBy的函数
+func (gw *Gateway) newHandler(name string, data map[string]interface{}) ([]Handler, error) {
+	handler := make([]Handler, 0)
+	for k, v := range data {
+		hd, err := NewHandler(k, v)
+		if err != nil {
+			return nil, fmt.Errorf(`"%s"."%s" %s`, name, k, err.Error())
+		}
+		handler = append(handler, hd)
+	}
+	return handler, nil
 }
 
 // 创建Gateway实例，data的json格式

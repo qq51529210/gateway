@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +34,8 @@ type Context struct {
 type Handler interface {
 	// 返回false表示失败，终止调用链
 	Handle(*Context) bool
+	// 更新自身数据
+	Update(interface{}) error
 }
 
 // 创建一个新的拦截器的函数，data是Handler初始化的数据。
@@ -106,6 +109,104 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 	return true
 }
 
+// 接口实现，data的json格式
+// {
+// 	"requestUrl": "",
+// 	"requestHeader": [
+// 		"name1",
+// 		"name2",
+// 		...
+// 	],
+// 	"requestAdditionHeader": {
+// 		"name1": "value1",
+// 		"name2": "value2",
+// 		...
+// 	},
+// 	"requestTimeout": 2000,
+// 	"responseAdditionHeader": {
+// 		"name1": "value1",
+// 		"name2": "value2",
+// 		...
+// 	}
+// }
+func (h *DefaultHandler) Update(data interface{}) error {
+	initData, ok := data.(map[string]interface{})
+	if !ok {
+		return errors.New(`data must be "map[string]interface{}"`)
+	}
+	// RequestUrl
+	str, err := GetString(initData, "requestUrl")
+	if err != nil {
+		return err
+	}
+	if str != "" {
+		h.RequestUrl, err = url.Parse(str)
+		if err != nil {
+			return fmt.Errorf(`"requestUrl" %s`, err.Error())
+		}
+	}
+	return h.update(initData)
+}
+
+// Update和NewDefaultHandler公共函数
+func (h *DefaultHandler) update(data map[string]interface{}) error {
+	// RequestTimeout
+	value, ok := data["requestTimeout"]
+	if ok {
+		integer, ok := value.(float64)
+		if !ok {
+			return errors.New(`"requestTimeout" must be "int64"`)
+		}
+		h.RequestTimeout = time.Duration(integer) * time.Millisecond
+	}
+	// RequestHeader
+	value, ok = data["requestHeader"]
+	if ok {
+		a, ok := value.([]interface{})
+		if !ok {
+			return errors.New(`"requestHeader" must be "[]string"`)
+		}
+		for i, v := range a {
+			str, ok := v.(string)
+			if !ok {
+				return fmt.Errorf(`"requestHeader" item[%d] must be string`, i)
+			}
+			h.RequestHeader[str] = 1
+		}
+	}
+	// RequestAdditionHeader
+	value, ok = data["requestAdditionHeader"]
+	if ok {
+		m, ok := value.(map[string]interface{})
+		if !ok {
+			return errors.New(`"requestAdditionHeader" must be "map[string]string"`)
+		}
+		for k, v := range m {
+			str, ok := v.(string)
+			if !ok {
+				return fmt.Errorf(`"requestAdditionHeader"."%s" value must be string`, k)
+			}
+			h.RequestAdditionHeader[k] = str
+		}
+	}
+	// ResponseAdditionHeader
+	value, ok = data["responseAdditionHeader"]
+	if ok {
+		m, ok := value.(map[string]interface{})
+		if !ok {
+			return errors.New(`"responseAdditionHeader" must be "map[string]string"`)
+		}
+		for k, v := range m {
+			str, ok := v.(string)
+			if !ok {
+				return fmt.Errorf(`"responseAdditionHeader"."%s" value must be string`, k)
+			}
+			h.ResponseAdditionHeader[k] = str
+		}
+	}
+	return nil
+}
+
 // 创建DefaultHandler的函数，data的json格式
 // {
 // 	"routePath": "",
@@ -151,59 +252,9 @@ func NewDefaultHandler(data interface{}) (Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf(`"requestUrl" %s`, err.Error())
 	}
-	// RequestTimeout
-	value, ok := initData["requestTimeout"]
-	if ok {
-		integer, ok := value.(float64)
-		if !ok {
-			return nil, fmt.Errorf(`"requestTimeout" must be "int64"`)
-		}
-		h.RequestTimeout = time.Duration(integer) * time.Millisecond
-	}
-	// RequestHeader
-	value, ok = initData["requestHeader"]
-	if ok {
-		a, ok := value.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf(`"requestHeader" must be "[]string"`)
-		}
-		for i, v := range a {
-			str, ok = v.(string)
-			if !ok {
-				return nil, fmt.Errorf(`"requestHeader" item[%d] must be string`, i)
-			}
-			h.RequestHeader[str] = 1
-		}
-	}
-	// RequestAdditionHeader
-	value, ok = initData["requestAdditionHeader"]
-	if ok {
-		m, ok := value.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf(`"requestAdditionHeader" must be "map[string]string"`)
-		}
-		for k, v := range m {
-			str, ok = v.(string)
-			if !ok {
-				return nil, fmt.Errorf(`"requestAdditionHeader"."%s" value must be string`, k)
-			}
-			h.RequestAdditionHeader[k] = str
-		}
-	}
-	// ResponseAdditionHeader
-	value, ok = initData["ResponseAdditionHeader"]
-	if ok {
-		m, ok := value.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf(`"ResponseAdditionHeader" must be "map[string]string"`)
-		}
-		for k, v := range m {
-			str, ok = v.(string)
-			if !ok {
-				return nil, fmt.Errorf(`"ResponseAdditionHeader"."%s" value must be string`, k)
-			}
-			h.ResponseAdditionHeader[k] = str
-		}
+	err = h.update(initData)
+	if err != nil {
+		return nil, err
 	}
 	// 返回
 	return h, nil
@@ -218,6 +269,10 @@ func (h *DefaultInterceptor) Handle(c *Context) bool {
 	return true
 }
 
+func (h *DefaultInterceptor) Update(data interface{}) error {
+	return nil
+}
+
 // 默认匹配失败处理，返回404
 type DefaultNotFound struct {
 }
@@ -226,4 +281,8 @@ type DefaultNotFound struct {
 func (h *DefaultNotFound) Handle(c *Context) bool {
 	c.Res.WriteHeader(http.StatusNotFound)
 	return true
+}
+
+func (h *DefaultNotFound) Update(data interface{}) error {
+	return nil
 }
