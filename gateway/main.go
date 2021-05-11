@@ -9,7 +9,7 @@ import (
 	"github.com/qq51529210/gateway"
 )
 
-func newGateway() *gateway.Gateway {
+func main() {
 	// 加载配置
 	cfg := make(map[string]interface{})
 	// 默认程序目录下的程序名.json
@@ -30,10 +30,6 @@ func newGateway() *gateway.Gateway {
 	if err != nil {
 		panic(err)
 	}
-	return gw
-}
-
-func main() {
-	app := newGateway()
-	app.Serve()
+	// 开始服务
+	gw.Serve()
 }

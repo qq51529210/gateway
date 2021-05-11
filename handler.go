@@ -8,13 +8,11 @@ import (
 	"net/url"
 	"sync"
 	"time"
-
-	"github.com/qq51529210/log"
 )
 
 var (
 	handlerFunc = make(map[string]NewHandlerFunc) // 创建处理器的函数的表
-	contextPool = new(sync.Pool)
+	contextPool = new(sync.Pool)                  // Context缓存
 )
 
 func init() {
@@ -27,7 +25,8 @@ func init() {
 type Context struct {
 	Res  http.ResponseWriter
 	Req  *http.Request
-	Data interface{} // 传递数据用的
+	Data interface{} // 传递临时数据
+	Path string      // 匹配的路由的path
 }
 
 // 处理接口
@@ -47,8 +46,27 @@ func RegisterHandler(name string, newFunc NewHandlerFunc) {
 	handlerFunc[name] = newFunc
 }
 
-// 根据data和已经注册的NewHandlerFunc，创建相应的Handler。
-func NewHandler(name string, data interface{}) (Handler, error) {
+// 创建Handler，data的json格式
+// {
+//	"name": "handler",
+// 	...
+// },
+// 或者
+// "handler",
+func NewHandler(data interface{}) (Handler, error) {
+	var name string
+	switch v := data.(type) {
+	case string:
+		name = v
+	case map[string]interface{}:
+		var err error
+		name, err = GetString(v, "name")
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, errors.New(`data must be "string" or "map[string]interface{}" type`)
+	}
 	newFunc, ok := handlerFunc[name]
 	if !ok {
 		return NewDefaultHandler(data)
@@ -58,7 +76,6 @@ func NewHandler(name string, data interface{}) (Handler, error) {
 
 // 默认处理，只是转发
 type DefaultHandler struct {
-	RoutePath              string            // 注册的路由路径
 	RequestUrl             *url.URL          // 转发请求的服务地址
 	RequestTimeout         time.Duration     // 转发请求超时，单位毫秒
 	RequestHeader          map[string]int    // 转发请求header
@@ -73,7 +90,7 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 	request.Method = c.Req.Method
 	request.URL = new(url.URL)
 	*request.URL = *h.RequestUrl
-	request.URL.Path = c.Req.URL.Path[len(h.RoutePath):]
+	request.URL.Path = c.Req.URL.Path[len(c.Path):]
 	request.ContentLength = c.Req.ContentLength
 	// 提取指定转发的header
 	for k := range h.RequestHeader {
@@ -91,7 +108,7 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 	client := &http.Client{Timeout: h.RequestTimeout}
 	response, err := client.Do(&request)
 	if err != nil {
-		log.Error(err)
+		fmt.Println(err)
 		return false
 	}
 	// 转发结果
@@ -238,11 +255,6 @@ func NewDefaultHandler(data interface{}) (Handler, error) {
 	h.RequestHeader = make(map[string]int)
 	h.RequestAdditionHeader = make(map[string]string)
 	h.ResponseAdditionHeader = make(map[string]string)
-	// RoutePath
-	h.RoutePath, err = MustGetString(initData, "routePath")
-	if err != nil {
-		return nil, err
-	}
 	// RequestUrl
 	str, err := MustGetString(initData, "requestUrl")
 	if err != nil {

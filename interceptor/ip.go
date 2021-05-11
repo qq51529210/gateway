@@ -96,7 +96,7 @@ func (h *IPAddrInterceptor) Update(data interface{}) error {
 func NewIPAddrInterceptor(data interface{}) (gateway.Handler, error) {
 	value, ok := data.([]interface{})
 	if !ok {
-		return nil, errors.New(`"ipAddrInterceptor" value must be "[]string"`)
+		return nil, errors.New(`"ipAddrInterceptor" data must be "[]string"`)
 	}
 	ip := new(IPAddrInterceptor)
 	for i, v := range value {

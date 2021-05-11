@@ -16,11 +16,11 @@ func TopDir(path string) string {
 func MustGetString(data map[string]interface{}, name string) (string, error) {
 	val, ok := data[name]
 	if !ok {
-		return "", fmt.Errorf(`"%s" must be define`, name)
+		return "", fmt.Errorf(`"%s" must be defined`, name)
 	}
 	str, ok := val.(string)
 	if !ok {
-		return "", fmt.Errorf(`"%s" must be string`, name)
+		return "", fmt.Errorf(`"%s" must be "string" type`, name)
 	}
 	return str, nil
 }
@@ -31,7 +31,7 @@ func GetString(data map[string]interface{}, name string) (string, error) {
 	if ok {
 		str, ok := val.(string)
 		if !ok {
-			return "", fmt.Errorf(`"%s" must be string`, name)
+			return "", fmt.Errorf(`"%s" must be "string" type`, name)
 		}
 		return str, nil
 	}
