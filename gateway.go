@@ -188,10 +188,10 @@ type Gateway struct {
 	Listen         string    // 监听地址
 	X509CertPEM    string    // X509证书公钥，base64
 	X509KeyPEM     string    // X509证书私钥，base64
-	ApiListen      string    // 监听地址
-	ApiX509CertPEM string    // X509证书公钥，base64
-	ApiX509KeyPEM  string    // X509证书私钥，base64
-	ApiAccessToken string    // 访问api的token
+	ApiListen      string    // api服务监听地址
+	ApiX509CertPEM string    // api服务X509证书公钥，base64
+	ApiX509KeyPEM  string    // api服务X509证书私钥，base64
+	ApiAccessToken string    // api服务访问token
 	interceptor    []Handler // 全局拦截
 	notFound       []Handler // 匹配失败
 	handler        sync.Map  // 处理函数路由表，string:[]Handler
@@ -250,10 +250,11 @@ func (gw *Gateway) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		handler = gw.notFound
 		for _, h := range handler {
 			if !h.Handle(ctx) {
-				contextPool.Put(ctx)
-				return
+				break
 			}
 		}
+		contextPool.Put(ctx)
+		return
 	}
 	// 处理
 	handler = value.([]Handler)
