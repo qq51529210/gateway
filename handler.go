@@ -11,8 +11,11 @@ import (
 )
 
 var (
-	handlerFunc = make(map[string]NewHandlerFunc) // 创建处理器的函数的表
-	contextPool = new(sync.Pool)                  // Context缓存
+	handlerFunc            = make(map[string]NewHandlerFunc)      // 创建处理器的函数的表
+	contextPool            = new(sync.Pool)                       // Context缓存
+	defaultHandlerName     = HandlerName(new(DefaultHandler))     // 注册名称
+	defaultInterceptorName = HandlerName(new(DefaultInterceptor)) // 注册名称
+	defaultNotFoundName    = HandlerName(new(DefaultNotFound))    // 注册名称
 )
 
 func init() {
@@ -23,10 +26,13 @@ func init() {
 
 // 调用链中传递的上下文数据
 type Context struct {
-	Res  http.ResponseWriter
-	Req  *http.Request
-	Data interface{} // 传递临时数据
-	Path string      // 匹配的路由的path
+	Res         http.ResponseWriter
+	Req         *http.Request
+	Path        string      // 匹配的路由的path
+	Data        interface{} // 用于调用链之间传递临时数据
+	Interceptor []Handler   // Gateway当前的所有Interceptor，任意时刻有效
+	NotFound    []Handler   // Gateway当前的所有NotFound，匹配到Handler无效
+	Handler     []Handler   // Gateway当前的所有Handler，匹配到NotFound无效
 }
 
 // 处理接口
@@ -86,7 +92,7 @@ type DefaultHandler struct {
 }
 
 func (h *DefaultHandler) Name() string {
-	return "github.com/qq51529210/gateway.DefaultHandler"
+	return defaultHandlerName
 }
 
 // 接口实现
@@ -287,12 +293,14 @@ func (h *DefaultInterceptor) Handle(c *Context) bool {
 	return true
 }
 
+// 接口实现
 func (h *DefaultInterceptor) Update(data interface{}) error {
 	return nil
 }
 
+// 接口实现
 func (h *DefaultInterceptor) Name() string {
-	return ""
+	return defaultInterceptorName
 }
 
 // 默认匹配失败处理，返回404
@@ -305,10 +313,12 @@ func (h *DefaultNotFound) Handle(c *Context) bool {
 	return true
 }
 
+// 接口实现
 func (h *DefaultNotFound) Update(data interface{}) error {
 	return nil
 }
 
+// 接口实现
 func (h *DefaultNotFound) Name() string {
-	return ""
+	return defaultNotFoundName
 }

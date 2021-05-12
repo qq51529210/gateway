@@ -236,8 +236,8 @@ func (gw *Gateway) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	ctx.Res = res
 	ctx.Data = nil
 	// 拦截
-	handler := gw.interceptor
-	for _, h := range handler {
+	ctx.Interceptor = gw.interceptor
+	for _, h := range ctx.Interceptor {
 		if !h.Handle(ctx) {
 			contextPool.Put(ctx)
 			return
@@ -247,8 +247,8 @@ func (gw *Gateway) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	ctx.Path = TopDir(req.URL.Path)
 	value, ok := gw.handler.Load(ctx.Path)
 	if !ok {
-		handler = gw.notFound
-		for _, h := range handler {
+		ctx.NotFound = gw.notFound
+		for _, h := range ctx.NotFound {
 			if !h.Handle(ctx) {
 				break
 			}
@@ -257,8 +257,8 @@ func (gw *Gateway) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	// 处理
-	handler = value.([]Handler)
-	for _, h := range handler {
+	ctx.Handler = value.([]Handler)
+	for _, h := range ctx.Handler {
 		if !h.Handle(ctx) {
 			contextPool.Put(ctx)
 			return

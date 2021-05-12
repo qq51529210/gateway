@@ -10,12 +10,18 @@ import (
 	gateway "github.com/qq51529210/gateway"
 )
 
-const (
-	IPInterceptorRegisterName = "gateway.interceptor.IPInterceptor"
+var (
+	ipInterceptorRegisterName = gateway.HandlerName(&IPInterceptor{}) // 注册名称
 )
 
 func init() {
-	gateway.RegisterHandler(IPInterceptorRegisterName, NewIPAddrInterceptor)
+	// 注册
+	gateway.RegisterHandler(ipInterceptorRegisterName, NewIPAddrInterceptor)
+}
+
+// 获取IPInterceptor的注册名称
+func IPInterceptorRegisterName() string {
+	return ipInterceptorRegisterName
 }
 
 // 基于本地内存的ip地址拦截
@@ -93,7 +99,7 @@ func (h *IPInterceptor) Update(data interface{}) error {
 
 // 实现接口
 func (h *IPInterceptor) Name() string {
-	return gateway.HandlerName(h)
+	return ipInterceptorRegisterName
 }
 
 // 创建新的ip拦截器，data的json格式
