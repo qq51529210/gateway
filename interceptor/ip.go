@@ -10,17 +10,21 @@ import (
 	gateway "github.com/qq51529210/gateway"
 )
 
+const (
+	IPInterceptorRegisterName = "gateway.interceptor.IPInterceptor"
+)
+
 func init() {
-	gateway.RegisterHandler("ipAddrInterceptor", NewIPAddrInterceptor)
+	gateway.RegisterHandler(IPInterceptorRegisterName, NewIPAddrInterceptor)
 }
 
 // 基于本地内存的ip地址拦截
-type IPAddrInterceptor struct {
+type IPInterceptor struct {
 	IP sync.Map
 }
 
 // 实现接口
-func (ipi *IPAddrInterceptor) Handle(c *gateway.Context) bool {
+func (ipi *IPInterceptor) Handle(c *gateway.Context) bool {
 	i := strings.IndexByte(c.Req.RemoteAddr, ':')
 	if i < 1 {
 		return false
@@ -43,21 +47,21 @@ func (ipi *IPAddrInterceptor) Handle(c *gateway.Context) bool {
 // 			...
 // 		]
 // }
-func (h *IPAddrInterceptor) Update(data interface{}) error {
+func (h *IPInterceptor) Update(data interface{}) error {
 	m, ok := data.(map[string]interface{})
 	if !ok {
-		return errors.New(`data must be "map[string][]string"`)
+		return errors.New(`data must be "map[string][]string" type`)
 	}
 	value, ok := m["add"]
 	if ok {
 		array, ok := value.([]interface{})
 		if !ok {
-			return errors.New(`"add" value must be "[]string"`)
+			return errors.New(`"add" data must be "[]string" type`)
 		}
 		for i, a := range array {
 			str, ok := a.(string)
 			if !ok {
-				return fmt.Errorf(`"add" [%d] must be "string"`, i)
+				return fmt.Errorf(`"add" [%d] must be "string" type`, i)
 			}
 			_, err := net.ResolveIPAddr("ip", str)
 			if err != nil {
@@ -70,12 +74,12 @@ func (h *IPAddrInterceptor) Update(data interface{}) error {
 	if ok {
 		array, ok := value.([]interface{})
 		if !ok {
-			return errors.New(`"remove" value must be "[]string"`)
+			return errors.New(`"remove" data must be "[]string" type`)
 		}
 		for i, a := range array {
 			str, ok := a.(string)
 			if !ok {
-				return fmt.Errorf(`"remove" [%d] must be "string"`, i)
+				return fmt.Errorf(`"remove" [%d] must be "string" type`, i)
 			}
 			_, err := net.ResolveIPAddr("ip", str)
 			if err != nil {
@@ -87,28 +91,33 @@ func (h *IPAddrInterceptor) Update(data interface{}) error {
 	return nil
 }
 
+// 实现接口
+func (h *IPInterceptor) Name() string {
+	return gateway.HandlerName(h)
+}
+
 // 创建新的ip拦截器，data的json格式
-// 	"ipAddr": [
-//		"ip1",
+// [
+// 		"ip1",
 //		"ip2",
 //		...
 // ]
 func NewIPAddrInterceptor(data interface{}) (gateway.Handler, error) {
 	value, ok := data.([]interface{})
 	if !ok {
-		return nil, errors.New(`"ipAddrInterceptor" data must be "[]string"`)
+		return nil, errors.New(`"IPInterceptor" data must be "[]string" type`)
 	}
-	ip := new(IPAddrInterceptor)
+	ip := new(IPInterceptor)
 	for i, v := range value {
 		// 检查类型
 		s, ok := v.(string)
 		if !ok {
-			return nil, fmt.Errorf(`"ipAddrInterceptor" [%d] must be string`, i)
+			return nil, fmt.Errorf(`"IPInterceptor" [%d] must be "string" type`, i)
 		}
 		// 检查格式
 		addr, err := net.ResolveIPAddr("ip", s)
 		if err != nil {
-			return nil, fmt.Errorf(`"ipAddrInterceptor" [%d] %s`, i, err.Error())
+			return nil, fmt.Errorf(`"IPInterceptor" [%d] %s`, i, err.Error())
 		}
 		// 保存
 		ip.IP.Store(addr.IP.String(), 1)

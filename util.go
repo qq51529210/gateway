@@ -1,6 +1,9 @@
 package gateway
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // 找出第一层目录，/a/b中的/a
 func TopDir(path string) string {
@@ -10,6 +13,12 @@ func TopDir(path string) string {
 		}
 	}
 	return path
+}
+
+// 返回h所在的包和结构
+func HandlerName(h Handler) string {
+	_type := reflect.TypeOf(h).Elem()
+	return _type.PkgPath() + "." + _type.Name()
 }
 
 // data必须有key为name，value为string类型的数据。
@@ -28,16 +37,17 @@ func MustGetString(data map[string]interface{}, name string) (string, error) {
 // data如果有key为name的数据，那么value必须string类型。
 func GetString(data map[string]interface{}, name string) (string, error) {
 	val, ok := data[name]
-	if ok {
-		str, ok := val.(string)
-		if !ok {
-			return "", fmt.Errorf(`"%s" must be "string" type`, name)
-		}
-		return str, nil
+	if !ok {
+		return "", nil
 	}
-	return "", nil
+	str, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf(`"%s" must be "string" type`, name)
+	}
+	return str, nil
 }
 
+// 过滤掉nil的Handler
 func FilteNilHandler(handler ...Handler) []Handler {
 	hd := make([]Handler, 0)
 	for i := 0; i < len(handler); i++ {

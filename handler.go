@@ -35,6 +35,8 @@ type Handler interface {
 	Handle(*Context) bool
 	// 更新自身数据
 	Update(interface{}) error
+	// 返回注册的名称
+	Name() string
 }
 
 // 创建一个新的拦截器的函数，data是Handler初始化的数据。
@@ -81,6 +83,10 @@ type DefaultHandler struct {
 	RequestHeader          map[string]int    // 转发请求header
 	RequestAdditionHeader  map[string]string // 转发请求附加的header
 	ResponseAdditionHeader map[string]string // 转发相应附加的header
+}
+
+func (h *DefaultHandler) Name() string {
+	return "github.com/qq51529210/gateway.DefaultHandler"
 }
 
 // 接口实现
@@ -285,6 +291,10 @@ func (h *DefaultInterceptor) Update(data interface{}) error {
 	return nil
 }
 
+func (h *DefaultInterceptor) Name() string {
+	return ""
+}
+
 // 默认匹配失败处理，返回404
 type DefaultNotFound struct {
 }
@@ -297,4 +307,8 @@ func (h *DefaultNotFound) Handle(c *Context) bool {
 
 func (h *DefaultNotFound) Update(data interface{}) error {
 	return nil
+}
+
+func (h *DefaultNotFound) Name() string {
+	return ""
 }
