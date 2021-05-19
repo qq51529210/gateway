@@ -23,154 +23,45 @@ func init() {
 	}
 }
 
-// 创建Gateway实例，data的json格式
-// {
-// 	"listen": "",
-// 	"x509CertPEM": "",
-// 	"x509KeyPem": "",
-// 	"apiListen": "",
-// 	"apiX509CertPem": "",
-// 	"apiX509KeyPem": "",
-// 	"apiAccessToken": "",
-// 	"interceptor": [
-// 		"handle1": {...},
-// 		"handle2": {...},
-// 		...
-// 	],
-// 	"notfound": [
-// 		"handle1": {...},
-// 		"handle2": {...},
-//		...
-// 	],
-// 	"handler": {
-// 		"/path1": [
-// 			"handle1": {...},
-// 			"handle2": {...},
-//			...
-// 		],
-// 		"/path2": [
-// 			"handle1": {...},
-// 			"handle3": {...},
-//			...
-// 		],
-// 		"/path3": [
-// 			"handle3": {...},
-//			...
-// 		]
-// 	}
-// }
-func NewGateway(data map[string]interface{}) (*Gateway, error) {
+type NewGatewayData struct {
+	Listen         string                               // 监听地址，必须
+	X509CertPEM    string                               // X509证书公钥，base64，可选
+	X509KeyPEM     string                               // X509证书私钥，base64，可选
+	ApiListen      string                               // api服务监听地址，可选
+	ApiX509CertPEM string                               // api服务X509证书公钥，base64，可选
+	ApiX509KeyPEM  string                               // api服务X509证书私钥，base64，可选
+	ApiAccessToken string                               // api服务访问token，可选
+	Interceptor    []*handler.NewHandlerData            // 生成Handler参数，可选
+	NotFound       []*handler.NewHandlerData            // 生成Handler参数，可选
+	Handler        map[string][]*handler.NewHandlerData // 生成Handler参数，可选
+}
+
+// 创建Gateway实例
+func NewGateway(data *NewGatewayData) (*Gateway, error) {
 	var err error
 	gw := new(Gateway)
-	// 	"listen": "",
-	gw.Listen, err = util.Data(data).MustString("listen")
-	if err != nil {
-		return nil, err
-	}
+	gw.Listen = data.Listen
 	if gw.Listen == "" {
 		return nil, errors.New(`"listen" data must not be empty`)
 	}
-	// 	"x509CertPem": "",
-	gw.X509CertPEM, err = util.Data(data).String("x509CertPEM")
+	gw.X509CertPEM = data.X509CertPEM
+	gw.X509KeyPEM = data.X509KeyPEM
+	gw.ApiListen = data.ApiListen
+	gw.ApiX509CertPEM = data.ApiX509CertPEM
+	gw.ApiX509KeyPEM = data.ApiX509KeyPEM
+	gw.ApiAccessToken = data.ApiAccessToken
+	err = gw.NewInterceptor(data.Interceptor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(`"interceptor" %s`, err.Error())
 	}
-	// 	"x509KeyPem": "",
-	gw.X509KeyPEM, err = util.Data(data).String("x509KeyPEM")
+	err = gw.NewNotFound(data.NotFound)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(`"interceptor" %s`, err.Error())
 	}
-	// 	"apiListen": "",
-	gw.ApiListen, err = util.Data(data).String("apiListen")
-	if err != nil {
-		return nil, err
-	}
-	// 	"apiX509CertPem": "",
-	gw.ApiX509CertPEM, err = util.Data(data).String("apiX509CertPem")
-	if err != nil {
-		return nil, err
-	}
-	// 	"apiX509KeyPem": "",
-	gw.ApiX509KeyPEM, err = util.Data(data).String("apiX509KeyPem")
-	if err != nil {
-		return nil, err
-	}
-	// 	"apiAccessToken": "",
-	gw.ApiAccessToken, err = util.Data(data).String("apiAccessToken")
-	if err != nil {
-		return nil, err
-	}
-	// 	"interceptor": [
-	// 		{
-	//			"name": "interceptor1",
-	//			...
-	//		},
-	// 		{
-	//			"name": "interceptor2",
-	//		},
-	//		...
-	// 	],
-	value, ok := data["interceptor"]
-	if ok {
-		err = gw.NewInterceptor(value)
+	for k, v := range data.Handler {
+		err = gw.NewHandler(k, v)
 		if err != nil {
-			return nil, fmt.Errorf(`"interceptor" %s`, err.Error())
-		}
-	}
-	// 	"notfound": [
-	// 		{
-	//			"name": "notfound1",
-	//			...
-	//		},
-	// 		{
-	//			"name": "notfound2",
-	//		},
-	//		"notfound3",
-	//		...
-	// 	],
-	value, ok = data["notfound"]
-	if ok {
-		err = gw.NewNotFound(value)
-		if err != nil {
-			return nil, fmt.Errorf(`"notfound" %s`, err.Error())
-		}
-	}
-	// 	"handler": {
-	// 		"/path1": [
-	// 			{
-	//				"name": "handler1",
-	// 				...
-	// 			},
-	// 			{
-	//				"name": "handler2",
-	// 				...
-	// 			},
-	//			...
-	// 		],
-	// 		"/path2": [
-	// 			{
-	//				"name": "handler2",
-	// 				...
-	// 			},
-	// 			"handler1",
-	//			...
-	// 		],
-	// 		"/path3": [
-	// 			"handler3",
-	//			...
-	// 		]
-	//	}
-	value, ok = data["handler"]
-	if ok {
-		m, ok := value.(map[string]interface{})
-		if !ok {
-			return nil, errors.New(`"handler" must be "map[string]interface{}" type`)
-		}
-		for k, v := range m {
-			err = gw.NewHandler(k, v)
-			if err != nil {
-				return nil, fmt.Errorf(`"handler"."%s" %s`, k, err.Error())
-			}
+			return nil, fmt.Errorf(`"handler"."%s" %s`, k, err.Error())
 		}
 	}
 	return gw, nil
@@ -268,29 +159,20 @@ func (gw *Gateway) SetHandler(route string, handler ...handler.Handler) {
 	gw.handler.Store(util.TopDir(path.Clean("/"+route)), handler)
 }
 
-// 创建并设置新的处理，data的json格式
-// [
-// 		{
-//			"name": "handler1",
-//			...
-//		},
-// 		{
-//			"name": "handler2",
-//			...
-//		},
-//		...
-// ]
-func (gw *Gateway) NewHandler(route string, data interface{}) error {
+// 创建并设置新的处理，如果没有生成新的Handler，则不生效。
+func (gw *Gateway) NewHandler(route string, data []*handler.NewHandlerData) error {
 	handler, err := newHandler("handler", data)
 	if err != nil {
 		return err
 	}
-	gw.SetHandler(route, handler...)
+	if len(handler) > 0 {
+		gw.SetHandler(route, handler...)
+	}
 	return nil
 }
 
-// 创建并设置新的拦截，如果没有生成新的Handler，则不生效。
-func (gw *Gateway) NewInterceptor(data interface{}) error {
+// 创建并设置新的interceptor，如果没有生成新的Handler，则不生效。
+func (gw *Gateway) NewInterceptor(data []*handler.NewHandlerData) error {
 	handler, err := newHandler("iterceptor", data)
 	if err != nil {
 		return err
@@ -301,8 +183,8 @@ func (gw *Gateway) NewInterceptor(data interface{}) error {
 	return nil
 }
 
-// 设置新的404，如果没有生成新的Handler，则不生效。
-func (gw *Gateway) NewNotFound(data interface{}) error {
+// 设置新的notfound，如果没有生成新的Handler，则不生效。
+func (gw *Gateway) NewNotFound(data []*handler.NewHandlerData) error {
 	handler, err := newHandler("notFound", data)
 	if err != nil {
 		return err
@@ -313,18 +195,11 @@ func (gw *Gateway) NewNotFound(data interface{}) error {
 	return nil
 }
 
-func newHandler(name string, data interface{}) ([]handler.Handler, error) {
-	array, ok := data.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf(`"%s" data must be "[]interface{}" type`, name)
-	}
+func newHandler(name string, data []*handler.NewHandlerData) ([]handler.Handler, error) {
 	newHD := make([]handler.Handler, 0)
-	for i, a := range array {
-		v, ok := a.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf(`"%s[%d]" data must be "map[string]interface{}" type`, name, i)
-		}
-		hd, err := handler.NewHandler(v)
+	// data = util.SortHandlerData(data)
+	for i, a := range data {
+		hd, err := handler.NewHandler(a)
 		if err != nil {
 			return nil, fmt.Errorf(`"%s[%d]" %s`, name, i, err.Error())
 		}

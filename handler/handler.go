@@ -3,8 +3,6 @@ package handler
 import (
 	"fmt"
 	"reflect"
-
-	"github.com/qq51529210/gateway/util"
 )
 
 var (
@@ -21,9 +19,16 @@ type Handler interface {
 	Name() string
 }
 
+// NewHandler使用的参数
+type NewHandlerData struct {
+	Name string `json:"name"` // 注册的名称，NewHandler使用
+	// Sort int    `json:"sort"` // 在调用链中的顺序，Gateway使用
+	Data string `json:"data"` // 初始化数据，Handler的实现使用
+}
+
 // 创建一个新的Handler的函数，data是Handler初始化的数据。
 // 每个Handler的实现都需要使用RegisterHandler()注册。
-type NewHandlerFunc func(data map[string]interface{}) (Handler, error)
+type NewHandlerFunc func(data *NewHandlerData) (Handler, error)
 
 // 注册创建Handler的函数。
 // 做法是在Handler的实现"xxx_handler.go"中的init()注册。
@@ -32,20 +37,15 @@ func RegisterHandler(name string, newFunc NewHandlerFunc) {
 	handlerFunc[name] = newFunc
 }
 
-// 创建Handler，data的json格式：{ "name": "handler", ... }，
-// name就是RegisterHandler()的参数，name为空或handlerFunc没有，将生成DefaultHandler。
-func NewHandler(data map[string]interface{}) (Handler, error) {
-	name, err := util.Data(data).MustString("name")
-	if err != nil {
-		return nil, err
-	}
-	newFunc, ok := handlerFunc[name]
+// 创建Handler，data.Name为空，或者没有注册，将生成DefaultHandler。
+func NewHandler(data *NewHandlerData) (Handler, error) {
+	newFunc, ok := handlerFunc[data.Name]
 	if !ok {
 		return NewDefaultHandler(data)
 	}
 	h, err := newFunc(data)
 	if err != nil {
-		return nil, fmt.Errorf(`"%s" %s`, name, err.Error())
+		return nil, fmt.Errorf(`"%s" %s`, data.Name, err.Error())
 	}
 	return h, nil
 }
@@ -55,7 +55,7 @@ func NewHandler(data map[string]interface{}) (Handler, error) {
 // 代码编译阶段就可以避免重名的情况。
 func HandlerName(h Handler) string {
 	_type := reflect.TypeOf(h).Elem()
-	return _type.PkgPath() + "." + _type.Name()
+	return _type.PkgPath() + "/" + _type.Name()
 }
 
 // 检查handler长度和nil

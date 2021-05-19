@@ -1,14 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/qq51529210/gateway/util"
 )
 
 var (
@@ -18,6 +17,15 @@ var (
 // 返回DefaultHandler的注册名称
 func DefaultHandlerName() string {
 	return defaultHandlerName
+}
+
+// DefaultHandler初始化数据
+type DefaultHandlerData struct {
+	RequestUrl             string            `json:"requestUrl"`             // 转发请求的服务地址，必须
+	RequestTimeout         int               `json:"requestTimeout"`         // 转发请求超时，单位毫秒，可选
+	RequestHeader          []string          `json:"requestHeader"`          // 转发请求header，可选
+	RequestAdditionHeader  map[string]string `json:"requestAdditionHeader"`  // 转发请求附加的header，可选
+	ResponseAdditionHeader map[string]string `json:"responseAdditionHeader"` // 转发相应附加的header，可选
 }
 
 // 默认处理，只是转发
@@ -77,112 +85,55 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 	return true
 }
 
-// Handler接口。
-// data的json格式：
-// {
-// 	"requestUrl": "",
-// 	"requestHeader": [
-// 		"",
-// 		"",
-// 		...
-// 	],
-// 	"requestAdditionHeader": {
-// 		"": "",
-// 		"": "",
-// 		...
-// 	},
-// 	"requestTimeout": 0,
-// 	"responseAdditionHeader": {
-// 		"": "",
-// 		"": "",
-// 		...
-// 	}
-// }
+// Handler接口，data是*DefaultHandlerData
 func (h *DefaultHandler) Update(data interface{}) error {
-	initData, ok := data.(map[string]interface{})
+	d, ok := data.(*DefaultHandlerData)
 	if !ok {
-		return errors.New(`data must be "map[string]interface{}"`)
+		return errors.New(`data must be "*DefaultHandlerData"`)
 	}
-	var newHandler DefaultHandler
 	// requestUrl
-	str, err := util.Data(initData).String("requestUrl")
+	requestUrl, err := url.Parse(d.RequestUrl)
 	if err != nil {
-		return err
+		return fmt.Errorf(`"requestUrl" %s`, err.Error())
 	}
-	if str != "" {
-		newHandler.RequestUrl, err = url.Parse(str)
-		if err != nil {
-			return fmt.Errorf(`"requestUrl" %s`, err.Error())
-		}
-	}
+	h.RequestUrl = requestUrl
 	// requestTimeout
-	newHandler.RequestTimeout = h.RequestTimeout
-	value, ok := initData["requestTimeout"]
-	if ok {
-		integer, ok := value.(float64)
-		if !ok {
-			return errors.New(`"requestTimeout" must be "int64" type`)
-		}
-		newHandler.RequestTimeout = time.Duration(integer) * time.Millisecond
+	if d.RequestTimeout >= 0 {
+		h.RequestTimeout = time.Duration(d.RequestTimeout) * time.Millisecond
 	}
 	// requestHeader
-	newHandler.RequestHeader = make(map[string]int)
-	ss, err := util.Data(initData).StringSlice("requestHeader")
-	if err != nil {
-		return err
-	}
-	for _, s := range ss {
-		newHandler.RequestHeader[s] = 1
+	if len(d.RequestHeader) > 0 {
+		h.RequestHeader = make(map[string]int)
+		for _, s := range d.RequestHeader {
+			h.RequestHeader[s] = 1
+		}
 	}
 	// requestAdditionHeader
-	newHandler.RequestAdditionHeader, err = util.Data(initData).StringMap("requestAdditionHeader")
-	if err != nil {
-		return err
+	if len(d.RequestAdditionHeader) > 0 {
+		h.RequestAdditionHeader = make(map[string]string)
+		for k, v := range d.RequestAdditionHeader {
+			h.RequestAdditionHeader[k] = v
+		}
 	}
 	// responseAdditionHeader
-	newHandler.ResponseAdditionHeader, err = util.Data(initData).StringMap("responseAdditionHeader")
-	if err != nil {
-		return err
-	}
-	h.RequestUrl = newHandler.RequestUrl
-	if len(newHandler.RequestHeader) > 0 {
-		h.RequestHeader = newHandler.RequestHeader
-	}
-	if len(newHandler.RequestAdditionHeader) > 0 {
-		h.RequestAdditionHeader = newHandler.RequestAdditionHeader
-	}
-	if len(newHandler.ResponseAdditionHeader) > 0 {
-		h.ResponseAdditionHeader = newHandler.ResponseAdditionHeader
+	if len(d.ResponseAdditionHeader) > 0 {
+		h.ResponseAdditionHeader = make(map[string]string)
+		for k, v := range d.ResponseAdditionHeader {
+			h.ResponseAdditionHeader[k] = v
+		}
 	}
 	return nil
 }
 
-// 创建DefaultHandler的函数，data的json格式：
-// {
-// 	"requestUrl": "",
-// 	"requestHeader": [
-// 		"",
-// 		"",
-// 		...
-// 	],
-// 	"requestAdditionHeader": {
-// 		"": "",
-// 		"": "",
-// 		...
-// 	},
-// 	"requestTimeout": 0,
-// 	"responseAdditionHeader": {
-// 		"": "",
-// 		"": "",
-// 		...
-// 	}
-// }
-// requestUrl表示代理服务的url（必须），requestHeader表示需要转发哪些字段（可选），
-// requestAdditionHeader表示额外添加/覆盖原来的字段（可选），requestTimeout表示转发请求超时（毫秒）（可选），
-// responseAdditionHeader表示额外添加/覆盖代理服务的响应字段（可选）。
-func NewDefaultHandler(data interface{}) (Handler, error) {
+// 创建DefaultHandler的函数
+func NewDefaultHandler(data *NewHandlerData) (Handler, error) {
+	var d DefaultHandlerData
+	err := json.Unmarshal([]byte(data.Data), &d)
+	if err != nil {
+		return nil, err
+	}
 	h := new(DefaultHandler)
-	err := h.Update(data)
+	err = h.Update(data)
 	if err != nil {
 		return nil, err
 	}

@@ -9,7 +9,7 @@ import (
 
 func main() {
 	// 加载配置
-	cfg := make(map[string]interface{})
+	var cfg NewGatewayData
 	// 默认程序目录下的程序名.json
 	dir, file := filepath.Split(os.Args[0])
 	ext := filepath.Ext(file)
@@ -24,7 +24,7 @@ func main() {
 		panic(err)
 	}
 	// 创建
-	gw, err := NewGateway(cfg)
+	gw, err := NewGateway(&cfg)
 	if err != nil {
 		panic(err)
 	}

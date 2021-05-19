@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-json"
 	"github.com/qq51529210/gateway/handler"
 )
 
@@ -18,6 +19,7 @@ type testHandler struct {
 }
 
 func (h *testHandler) Handle(c *handler.Context) bool {
+	c.Req.Header.Add("test", h.data)
 	return true
 }
 
@@ -143,7 +145,7 @@ func testRequest(url, reqBody, resBody string, reqHeader, resHeader, resAddition
 	if err != nil {
 		return err
 	}
-	if string(body.Bytes()) != resBody {
+	if body.String() != resBody {
 		return fmt.Errorf(`"response body" is "%s" no "%s"`, body.String(), resBody)
 	}
 	return nil
@@ -154,50 +156,60 @@ type testGateway struct {
 	err error
 }
 
-func (tg *testGateway) Serve(gatewayAddr, service1Route, service2Route, service1Addr, service2Addr string) {
+func (tg *testGateway) Serve(gatewayAddr string, serviceRoute, serviceAddr, handlerData []string, reqHeader1, reqHeader2, reqAdditionHeader, resAdditionHeader map[string]string) {
 	testHandlerName := "testHandler"
 	// 注册
-	handler.RegisterHandler(testHandlerName, func(data map[string]interface{}) (handler.Handler, error) {
+	handler.RegisterHandler(testHandlerName, func(data *handler.NewHandlerData) (handler.Handler, error) {
 		hd := new(testHandler)
-		hd.data = data["data"].(string)
+		hd.data = data.Data
 		return hd, nil
 	})
+	var d1, d2 handler.DefaultHandlerData
+	d1.RequestUrl = "http://" + serviceAddr[0]
+	d1.RequestAdditionHeader = reqAdditionHeader
+	d1.ResponseAdditionHeader = resAdditionHeader
+	for k := range reqHeader1 {
+		d1.RequestHeader = append(d1.RequestHeader, k)
+	}
+	d2.RequestUrl = "http://" + serviceAddr[1]
+	d2.RequestAdditionHeader = reqAdditionHeader
+	d2.ResponseAdditionHeader = resAdditionHeader
+	for k := range reqHeader2 {
+		d1.RequestHeader = append(d2.RequestHeader, k)
+	}
+	var data []byte
+	data, tg.err = json.Marshal(&d1)
+	if tg.err != nil {
+		return
+	}
+	data1 := string(data)
+	data, tg.err = json.Marshal(&d2)
+	if tg.err != nil {
+		return
+	}
+	data2 := string(data)
 	// 初始化
-	tg.Gateway, tg.err = NewGateway(map[string]interface{}{
-		"listen": gatewayAddr,
-		"interceptor": []map[string]interface{}{
-			{
-				"name": testHandlerName,
-				"data": "testHandlerInterceptor",
-			},
-		},
-		"notfound": []map[string]interface{}{
-			{
-				"name": testHandlerName,
-				"data": "testHandlerNotfound",
-			},
-		},
-		"handler": map[string]interface{}{
-			service1Route: []map[string]interface{}{
+	tg.Gateway, tg.err = NewGateway(&NewGatewayData{
+		Listen: gatewayAddr,
+		Handler: map[string][]*handler.NewHandlerData{
+			serviceRoute[0]: {
 				{
-					"name": testHandlerName,
-					"data": "testHandler",
+					Name: testHandlerName,
+					Data: handlerData[0],
 				},
 				{
-					"name":                   handler.DefaultHandlerName(),
-					"requestUrl":             "http://" + service1Addr,
-					"requestHeader":          []string{"req11", "req12"},
-					"requestAdditionHeader":  []string{"reqadd1", "reqadd2"},
-					"responseAdditionHeader": []string{"resadd1", "resadd2"},
+					Name: handler.DefaultHandlerName(),
+					Data: data1,
 				},
 			},
-			service2Route: []map[string]interface{}{
+			serviceRoute[1]: {
 				{
-					"name":                   handler.DefaultHandlerName(),
-					"requestUrl":             "http://" + service2Addr,
-					"requestHeader":          []string{"req21", "req22"},
-					"requestAdditionHeader":  []string{"reqadd1", "reqadd2"},
-					"responseAdditionHeader": []string{"resadd1", "resadd2"},
+					Name: testHandlerName,
+					Data: handlerData[1],
+				},
+				{
+					Name: handler.DefaultHandlerName(),
+					Data: data2,
 				},
 			},
 		},
@@ -211,60 +223,42 @@ func (tg *testGateway) Serve(gatewayAddr, service1Route, service2Route, service1
 func Test_Gateway(t *testing.T) {
 	// 地址
 	gatewayAddr := "127.0.0.1:3390"
-	service1Addr := "127.0.0.1:3391"
-	service2Addr := "127.0.0.1:3392"
-	service1Route := "/service1"
-	service2Route := "/service2"
-	service1Path := "/path1"
-	service2Path := "/"
-	// header
-	reqHeader1 := make(map[string]string)
-	reqHeader1["req11"] = "11"
-	reqHeader1["req12"] = "12"
-	resHeader1 := make(map[string]string)
-	resHeader1["res11"] = "res11"
-	resHeader1["res12"] = "res12"
-	reqHeader2 := make(map[string]string)
-	reqHeader2["req21"] = "req21"
-	reqHeader2["req22"] = "req22"
-	resHeader2 := make(map[string]string)
-	resHeader2["res21"] = "res21"
-	resHeader2["res22"] = "res22"
-	// addition header
-	reqAdditionHeader := make(map[string]string)
-	reqAdditionHeader["reqadd1"] = "reqadd1"
-	reqAdditionHeader["reqadd2"] = "reqadd2"
-	resAdditionHeader := make(map[string]string)
-	resAdditionHeader["resadd1"] = "resadd1"
-	resAdditionHeader["resadd2"] = "resadd2"
-	// body
-	reqBody1 := "req1 body"
-	resBody1 := "res1 body"
-	reqBody2 := "req2 body"
-	resBody2 := "res2 body"
-	// status code
-	resCode1 := 200
-	resCode2 := 202
+	serviceAddr := []string{"127.0.0.1:3391", "127.0.0.1:3392"}
+	reqPath := []string{"/path1", "/"}
+	reqHeader := []map[string]string{{"req11": "req11", "req12": "req12"}, {"req21": "req21", "req22": "req22"}}
+	resHeader := []map[string]string{{"res11": "res11", "res12": "res12"}, {"res21": "res21", "res22": "res22"}}
+	reqAddHeader := map[string]string{"reqAdd11": "reqAdd11", "reqAdd12": "reqAdd12"}
+	resAddHeader := map[string]string{"resAdd11": "resAdd11", "resAdd12": "resAdd12"}
+	reqBody := []string{"req1 body", "req2 body"}
+	resBody := []string{"res1 body", "res2 body"}
+	resCode := []int{200, 300}
+	reqHandler := []string{"handler1", "handler2"}
 	// 服务
 	var service1, service2 testService
 	var serviceWaitGroup sync.WaitGroup
 	serviceWaitGroup.Add(2)
 	go func() {
 		defer serviceWaitGroup.Done()
-		service1.Serve(service1Addr, service1Path, reqBody1, resBody1, reqHeader1, reqAdditionHeader, resHeader1, resCode1)
+		h := make(map[string]string)
+		for k, v := range reqHeader[0] {
+			h[k] = v
+		}
+		h[reqHandler[0]] = reqHandler[0]
+		service1.Serve(serviceAddr[0], reqPath[0], reqBody[0], resBody[0], h, reqAddHeader, resHeader[0], resCode[0])
 	}()
 	go func() {
 		defer serviceWaitGroup.Done()
-		service2.Serve(service2Addr, service2Path, reqBody2, resBody2, reqHeader2, reqAdditionHeader, resHeader2, resCode2)
+		h := make(map[string]string)
+		for k, v := range reqHeader[1] {
+			h[k] = v
+		}
+		h[reqHandler[1]] = reqHandler[1]
+		service1.Serve(serviceAddr[1], reqPath[1], reqBody[1], resBody[1], h, reqAddHeader, resHeader[1], resCode[1])
 	}()
 	// 网关
+	serviceRoute := []string{"/service1", "/service2"}
 	var gateway testGateway
-	var gatewayWaitGroup sync.WaitGroup
-	var gatewayError error
-	go func() {
-		defer gatewayWaitGroup.Done()
-		gateway.Serve(gatewayAddr, service1Route, service2Route, service1Addr, service2Addr)
-	}()
+	go gateway.Serve(gatewayAddr, serviceRoute, serviceAddr, reqHandler, reqHeader[0], reqHeader[1], reqAddHeader, resAddHeader)
 	// 请求
 	var req1err, req2err error
 	go func() {
@@ -273,9 +267,9 @@ func Test_Gateway(t *testing.T) {
 			service1.Close()
 		}()
 		// 等待1s serivce ok
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 100)
 		// service1
-		req1err = testRequest("http://"+gatewayAddr+service1Route+service1Path, reqBody1, resBody1, reqHeader1, resHeader1, resAdditionHeader, resCode1)
+		req1err = testRequest("http://"+gatewayAddr+serviceRoute[0]+reqPath[0], reqBody[0], resBody[0], reqHeader[0], resHeader[0], resAddHeader, resCode[0])
 	}()
 	go func() {
 		// 关闭service
@@ -283,20 +277,19 @@ func Test_Gateway(t *testing.T) {
 			service2.Close()
 		}()
 		// 等待1s serivce ok
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 100)
 		// service2
-		req2err = testRequest("http://"+gatewayAddr+service2Route+service2Path, reqBody2, resBody2, reqHeader2, resHeader2, resAdditionHeader, resCode2)
+		req1err = testRequest("http://"+gatewayAddr+serviceRoute[1]+reqPath[1], reqBody[1], resBody[1], reqHeader[1], resHeader[1], resAddHeader, resCode[1])
 	}()
-	serviceWaitGroup.Done()
-	gateway.Close()
+	serviceWaitGroup.Wait()
 	if req1err != nil {
 		t.Fatal(req1err)
 	}
 	if req2err != nil {
 		t.Fatal(req2err)
 	}
-	if gatewayError != nil {
-		t.Fatal(gatewayError)
+	if gateway.err != nil {
+		t.Fatal(gateway.err)
 	}
 	if service1.err != nil {
 		t.Fatal(service1.err)
