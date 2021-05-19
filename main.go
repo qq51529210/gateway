@@ -5,8 +5,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-
-	"github.com/qq51529210/gateway"
 )
 
 func main() {
@@ -26,7 +24,7 @@ func main() {
 		panic(err)
 	}
 	// 创建
-	gw, err := gateway.NewGateway(cfg)
+	gw, err := NewGateway(cfg)
 	if err != nil {
 		panic(err)
 	}
