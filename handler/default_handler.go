@@ -50,12 +50,21 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 	request.URL = new(url.URL)
 	*request.URL = *h.RequestUrl
 	request.URL.Path = c.Req.URL.Path[len(c.Path):]
+	request.URL.RawQuery = c.Req.URL.RawQuery
+	request.URL.RawFragment = c.Req.URL.RawFragment
 	request.ContentLength = c.Req.ContentLength
 	// 提取指定转发的header
-	for k := range h.RequestHeader {
-		v := c.Req.Header.Get(k)
-		if v != "" {
-			request.Header.Set(k, v)
+	request.Header = make(http.Header)
+	if len(h.RequestHeader) < 1 {
+		for k := range c.Req.Header {
+			request.Header.Set(k, c.Req.Header.Get(k))
+		}
+	} else {
+		for k := range h.RequestHeader {
+			v := c.Req.Header.Get(k)
+			if v != "" {
+				request.Header.Set(k, v)
+			}
 		}
 	}
 	// 附加的header
@@ -71,7 +80,6 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 		return false
 	}
 	// 转发结果
-	c.Res.WriteHeader(response.StatusCode)
 	header := c.Res.Header()
 	for k, v := range response.Header {
 		for _, s := range v {
@@ -81,6 +89,7 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 	for k, v := range h.ResponseAdditionHeader {
 		header.Add(k, v)
 	}
+	c.Res.WriteHeader(response.StatusCode)
 	io.Copy(c.Res, response.Body)
 	return true
 }
@@ -133,7 +142,7 @@ func NewDefaultHandler(data *NewHandlerData) (Handler, error) {
 		return nil, err
 	}
 	h := new(DefaultHandler)
-	err = h.Update(data)
+	err = h.Update(&d)
 	if err != nil {
 		return nil, err
 	}

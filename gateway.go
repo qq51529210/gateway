@@ -140,15 +140,13 @@ func (gw *Gateway) handlerHTTP(res http.ResponseWriter, req *http.Request) {
 				break
 			}
 		}
-		contextPool.Put(ctx)
-		return
-	}
-	// 处理
-	ctx.Handler = value.([]handler.Handler)
-	for _, h := range ctx.Handler {
-		if !h.Handle(ctx) {
-			contextPool.Put(ctx)
-			return
+	} else {
+		// 处理
+		ctx.Handler = value.([]handler.Handler)
+		for _, h := range ctx.Handler {
+			if !h.Handle(ctx) {
+				break
+			}
 		}
 	}
 	contextPool.Put(ctx)
