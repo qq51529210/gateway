@@ -1,14 +1,86 @@
 # gateway
 使用golang基于标准库net/http开发的网关。
 
-所有的功能，都是通过实现handler.Handler接口来完成的。
+## 设计与使用
 
-## 设计
+1. 主要的逻辑代码如下，所以只要实现了相应步骤的调用链中的Handler就可以了。
 
-1. 定义Handler接口，所有的功能都是通过实现接口完成。
-2. 在http.ServeHTTP函数中，分成拦截和转发/404两大块，每一块都有Handler的调用链。
-3. 添加一个新的功能，只需要调用RegisterHandler()注册，就可以动态生成实例，不需要改动原来的代码。
-4. 通过http api接口，可以在运行时修改Handler的调用链，达到增删功能的目的。
+```go
+func ServeHTTP(...){
+  // 第一步，执行拦截的调用链
+  Interceptors.Handle()
+  // 第二步，如果是转发的路由
+  Handlers.Handle()
+  // 第二步，如果不匹配路由
+  NotFound.Handle()
+}
+```
+
+2. 添加一个新的功能，只需要调用RegisterHandler()注册，就可以动态生成实例，不需要改动原来的代码。下面是[handler/default_handler.go](./handler/default_handler.go)中的代码片段。
+
+```go
+var (
+	ipInterceptorRegisterName = HandlerName(&IPInterceptor{}) // 实现的Handler的注册名称
+)
+
+func init() {
+	RegisterHandler(ipInterceptorRegisterName, NewIPAddrInterceptor) // 注册
+}
+```
+
+3. 根据数据，动态生成Handler的调用链。
+
+```go
+	// 生成网关Gateway实例
+	return NewGateway(&NewGatewayData{
+    Listen: ":33966",
+    Interceptor: []*handler.NewHandlerData{
+				{
+					Name: Interceptor1, // 实现的Handler的注册名称
+					Data: Data1, // Interceptor1初始化的数据，字符串
+				},
+				{
+					Name: handler.IPInterceptorRegisterName(), // 包里实现的IPInterceptor
+          Data: Data2, // IPInterceptor初始化的数据，格式看NewIPAddrInterceptor()函数的说明
+				},
+				{
+					Name: Interceptor3,
+					Data: Data3,
+				},
+    },
+    NotFound: []*handler.NewHandlerData{
+				{
+					Name: NotFound1,
+					Data: Data1,
+				},
+				{
+					Name: NotFound2,
+					Data: Data2,
+				},
+    },
+		Handler: map[string][]*handler.NewHandlerData{
+    },
+			routue1: { // 路由，比如"/user"
+				{
+					Name: Handler1,
+					Data: Data1,
+				},
+				{
+					Name: handler.DefaultHandlerName(), // 包里实现的DefaultHandler
+					Data: Data2, // DefaultHandler初始化的数据，格式看NewDefaultHandler()函数的说明
+				},
+			},
+			routue2: {
+				{
+					Name: handler.DefaultHandlerName(),
+					Data: Data,
+				},
+			},
+		},
+	})
+```
+
+   
 
 ## 已实现的功能
 
@@ -16,10 +88,10 @@
 - 默认转发[handler/default_handler.go](./handler/default_handler.go)
 - 默认404[handler/default_notfound.go](./handler/default_notfound.go)
 - IP拦截[handler/ip_interceptor.go](./handler/ip_interceptor.go)
+- 身份认证拦截[handler/authentication_interceptor.go](./handler/authentication_interceptor.go)
 
 ## 待实现的功能
 
-- 认证
 - 限流
 - 熔断
 - 调用链起始节点

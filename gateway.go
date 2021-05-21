@@ -24,16 +24,16 @@ func init() {
 }
 
 type NewGatewayData struct {
-	Listen         string                               // 监听地址，必须
-	X509CertPEM    string                               // X509证书公钥，base64，可选
-	X509KeyPEM     string                               // X509证书私钥，base64，可选
-	ApiListen      string                               // api服务监听地址，可选
-	ApiX509CertPEM string                               // api服务X509证书公钥，base64，可选
-	ApiX509KeyPEM  string                               // api服务X509证书私钥，base64，可选
-	ApiAccessToken string                               // api服务访问token，可选
-	Interceptor    []*handler.NewHandlerData            // 生成Handler参数，可选
-	NotFound       []*handler.NewHandlerData            // 生成Handler参数，可选
-	Handler        map[string][]*handler.NewHandlerData // 生成Handler参数，可选
+	Listen         string                               `json:"listen"`         // 监听地址，必须
+	X509CertPEM    string                               `json:"x509CertPEM"`    // X509证书公钥，base64，可选
+	X509KeyPEM     string                               `json:"x509KeyPEM"`     // X509证书私钥，base64，可选
+	ApiListen      string                               `json:"apiListen"`      // api服务监听地址，可选
+	ApiX509CertPEM string                               `json:"apiX509CertPEM"` // api服务X509证书公钥，base64，可选
+	ApiX509KeyPEM  string                               `json:"apiX509KeyPEM"`  // api服务X509证书私钥，base64，可选
+	ApiAccessToken string                               `json:"apiAccessToken"` // api服务访问token，可选
+	Interceptor    []*handler.NewHandlerData            `json:"interceptor"`    // 生成Handler参数，可选
+	NotFound       []*handler.NewHandlerData            `json:"notFound"`       // 生成Handler参数，可选
+	Handler        map[string][]*handler.NewHandlerData `json:"handler"`        // 生成Handler参数，可选
 }
 
 // 创建Gateway实例
