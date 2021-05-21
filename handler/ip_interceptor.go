@@ -87,19 +87,25 @@ func (h *IPInterceptor) Name() string {
 	return ipInterceptorRegisterName
 }
 
-// 创建新的ip拦截器，已经注册
+// 创建新的ip拦截器，已经注册。data的格式为
+// {
+// 	"name": "github.com/qq51529210/handler/IPInterceptor",
+// 	"data": "[\"ip1\", \"ip2\"]"
+// }
 func NewIPAddrInterceptor(data *NewHandlerData) (Handler, error) {
 	// 解析
-	var d IPInterceptorUpdateData
+	var d []string
 	err := json.Unmarshal([]byte(data.Data), &d)
 	if err != nil {
 		return nil, err
 	}
-	ip := new(IPInterceptor)
-	// 更新数据
-	err = ip.Update(&d)
-	if err != nil {
-		return nil, err
+	h := new(IPInterceptor)
+	for i, a := range d {
+		_, err := net.ResolveIPAddr("ip", a)
+		if err != nil {
+			return nil, fmt.Errorf(`"data[%d]" %s`, i, err.Error())
+		}
+		h.IP.Store(a, 1)
 	}
-	return ip, nil
+	return h, nil
 }

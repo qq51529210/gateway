@@ -22,7 +22,6 @@ type Handler interface {
 // NewHandler使用的参数
 type NewHandlerData struct {
 	Name string `json:"name"` // 注册的名称，NewHandler使用
-	// Sort int    `json:"sort"` // 在调用链中的顺序，Gateway使用
 	Data string `json:"data"` // 初始化数据，Handler的实现使用
 }
 
@@ -32,7 +31,6 @@ type NewHandlerFunc func(data *NewHandlerData) (Handler, error)
 
 // 注册创建Handler的函数。
 // 做法是在Handler的实现"xxx_handler.go"中的init()注册。
-// 参考"./ip_interceptor.go"的实现。
 func RegisterHandler(name string, newFunc NewHandlerFunc) {
 	handlerFunc[name] = newFunc
 }
@@ -51,7 +49,7 @@ func NewHandler(data *NewHandlerData) (Handler, error) {
 }
 
 // 返回h所在的包和结构。在注册时很有用。
-// 比如，DefaultHandler返回的是"github.com/qq51529210/gateway/handler.DefaultHandler"。
+// 比如，DefaultHandler返回的是"github.com/qq51529210/gateway/handler/DefaultHandler"。
 // 代码编译阶段就可以避免重名的情况。
 func HandlerName(h Handler) string {
 	_type := reflect.TypeOf(h).Elem()

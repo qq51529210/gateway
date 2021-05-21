@@ -134,7 +134,11 @@ func (h *DefaultHandler) Update(data interface{}) error {
 	return nil
 }
 
-// 创建DefaultHandler的函数
+// 创建DefaultHandler的函数，已经注册。data的格式为
+// {
+// 	"name": "github.com/qq51529210/gateway/handler/DefaultHandler",
+// 	"data": "DefaultHandlerData的json字符串"
+// }
 func NewDefaultHandler(data *NewHandlerData) (Handler, error) {
 	var d DefaultHandlerData
 	err := json.Unmarshal([]byte(data.Data), &d)
