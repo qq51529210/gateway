@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goccy/go-json"
 	"github.com/qq51529210/gateway/handler"
 )
 
@@ -99,7 +99,7 @@ func testNewGateway(gatewayAddr string, serviceAddr, serviceRoute, handlerData, 
 	// 网关
 	return NewGateway(&NewGatewayData{
 		Listen: gatewayAddr,
-		Handler: map[string][]*handler.NewHandlerData{
+		Forward: map[string][]*handler.NewHandlerData{
 			serviceRoute[0]: {
 				{
 					Name: testHandlerName,

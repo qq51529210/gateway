@@ -13,36 +13,33 @@ import (
 )
 
 var (
-	handlerFunc = make(map[string]NewHandlerFunc) // 创建处理器的函数的表
+	// Create-Handler-Implementation function table.
+	handlerFunc = make(map[string]func(data *NewHandlerData) (Handler, error))
 )
 
-// 处理接口
 type Handler interface {
-	// 返回false表示失败，终止调用链
+	// Return false will abort call chain.
 	Handle(*Context) bool
-	// 更新自身数据
+	// Update self data.
 	Update(interface{}) error
-	// 返回注册的名称
+	// Return register name.
 	Name() string
 }
 
-// NewHandler使用的参数
 type NewHandlerData struct {
-	Name string `json:"name"` // 注册的名称，NewHandler使用
-	Data string `json:"data"` // 初始化数据，Handler的实现使用
+	// Use for create handler.
+	Name string `json:"name"`
+	// Handler init data.
+	Data string `json:"data"`
 }
 
-// 创建一个新的Handler的函数，data是Handler初始化的数据。
-// 每个Handler的实现都需要使用RegisterHandler()注册。
-type NewHandlerFunc func(data *NewHandlerData) (Handler, error)
-
-// 注册创建Handler的函数。
+// Register Create-Handler-Implementation function.
 // 做法是在Handler的实现"xxx_handler.go"中的init()注册。
-func RegisterHandler(name string, newFunc NewHandlerFunc) {
+func RegisterHandler(name string, newFunc func(data *NewHandlerData) (Handler, error)) {
 	handlerFunc[name] = newFunc
 }
 
-// 创建Handler，data.Name为空，或者没有注册，将生成DefaultHandler。
+// C 创建Handler，data.Name为空，或者没有注册，将生成DefaultHandler。
 func NewHandler(data *NewHandlerData) (Handler, error) {
 	newFunc, ok := handlerFunc[data.Name]
 	if !ok {
