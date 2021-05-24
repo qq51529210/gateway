@@ -1,2 +1,2 @@
-github.com/goccy/go-json v0.5.0 h1:uN55QGRtiK4C2OMao+mo7MZLyIHu+54bsE0LAsES3P8=
-github.com/goccy/go-json v0.5.0/go.mod h1:6MelG93GURQebXPDq3khkgXZkazVtN9CRI+MGFi0w8I=
+github.com/qq51529210/redis v0.0.0-20210524065637-63e0bbf7aad2 h1:6QGD/tIJF0KpW9bIucqDG3sngVKINQqM7nUqOBcnNh0=
+github.com/qq51529210/redis v0.0.0-20210524065637-63e0bbf7aad2/go.mod h1:h5fsGqGToDjifLPXqH7/2e6Zjd7XHp6+YmRi1jeCBZo=

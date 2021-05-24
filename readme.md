@@ -84,11 +84,11 @@ func init() {
 
 ## 已实现的功能
 
-- 默认拦截[handler/default_interceptor.go](./handler/ip_interceptor.go)
-- 默认转发[handler/default_handler.go](./handler/default_handler.go)
-- 默认404[handler/default_notfound.go](./handler/default_notfound.go)
-- IP拦截[handler/ip_interceptor.go](./handler/ip_interceptor.go)
-- 身份认证拦截[handler/authentication_interceptor.go](./handler/authentication_interceptor.go)
+- 默认拦截[DefaultInterceptor.go](./handler/ip_interceptor.go)，什么都不做。
+- 默认转发[DefaultHandler.go](./handler/default_handler.go)，可以指定转发哪些header，附加额外的请求和响应header。
+- 默认404[DefaultNotfound.go](./handler/default_notfound.go)，返回404和一些文本。
+- IP拦截[IPInterceptor.go](./handler/ip_interceptor.go)，拦截指定的IP地址。
+- 身份认证拦截[AuthenticationInterceptor.go](./handler/authentication_interceptor.go)，先检查cookie，如果没有再检查Authorization的请求头。拦截成功返回403和文本。
 
 ## 待实现的功能
 
