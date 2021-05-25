@@ -22,33 +22,29 @@ func init() {
 	}
 }
 
-// Create handler chain by data.
-func newHandlerChain(name string, data []*handler.NewHandlerData) ([]handler.Handler, error) {
-	newHD := make([]handler.Handler, 0)
-	for i, a := range data {
-		hd, err := handler.NewHandler(a)
-		if err != nil {
-			return nil, fmt.Errorf(`"%s[%d]" %s`, name, i, err.Error())
-		}
-		newHD = append(newHD, hd)
-	}
-	return newHD, nil
+type NewHandlerData struct {
+	// Use for create handler.
+	Name string `json:"name"`
+	// Handler init data.
+	Data interface{} `json:"data"`
 }
 
 type NewGatewayData struct {
 	// Gateway server listen address.
+	// If X509CertPEM and X509KeyPEM both are not empty,gateway server will use TLS.
 	Listen string `json:"listen"`
 	// Gateway server x509 cert file data.
 	X509CertPEM string `json:"x509CertPEM"`
 	// Gateway server x509 key file data.
 	X509KeyPEM string `json:"x509KeyPEM"`
 	// Gateway interceptor handler call chain.
-	Intercept []*handler.NewHandlerData `json:"intercept"`
+	Intercept []*NewHandlerData `json:"intercept"`
 	// Gateway notFound handler call chain.
-	NotFound []*handler.NewHandlerData `json:"notFound"`
+	NotFound []*NewHandlerData `json:"notFound"`
 	// Gateway forward handler call chain.
-	Forward map[string][]*handler.NewHandlerData `json:"forward"`
+	Forward map[string][]*NewHandlerData `json:"forward"`
 	// API management server listen address.
+	// If ApiX509CertPEM and ApiX509KeyPEM both are not empty,api server will use TLS.
 	ApiListen string `json:"apiListen"`
 	// API management server x509 cert file data.
 	ApiX509CertPEM string `json:"apiX509CertPEM"`
@@ -56,6 +52,11 @@ type NewGatewayData struct {
 	ApiX509KeyPEM string `json:"apiX509KeyPEM"`
 	// API management server authentication token.
 	ApiAccessToken string `json:"apiAccessToken"`
+}
+
+type gatewayForwarder struct {
+	RegisterName string
+	handler.Handler
 }
 
 // Create a new Gateway
@@ -96,41 +97,42 @@ func NewGateway(data *NewGatewayData) (*Gateway, error) {
 			})
 		}
 	}
-	// Init interceptor call chain.
-	err = gw.newInterceptor(data.Intercept)
+	// Init intercept handler call chain.
+	err = gw.newIntercept(data.Intercept)
 	if err != nil {
-		return nil, fmt.Errorf(`"interceptor" %s`, err.Error())
+		return nil, err
 	}
-	// Init notfound call chain.
+	// Init notfound handler call chain.
 	err = gw.newNotFound(data.NotFound)
 	if err != nil {
-		return nil, fmt.Errorf(`"notfound" %s`, err.Error())
+		return nil, err
 	}
-	// Init forward call chain.
+	// Init forward handler call chain.
 	for k, v := range data.Forward {
-		err = gw.newForwarder(k, v)
+		err = gw.newForward(k, v)
 		if err != nil {
-			return nil, fmt.Errorf(`"handler"."%s" %s`, k, err.Error())
+			return nil, err
 		}
 	}
 	return gw, nil
 }
 
 type Gateway struct {
-	// Gateway http server.
+	// Gateway server.
 	server http.Server
-	// Gateway http server listener.
+	// Gateway server listener.
 	listener net.Listener
-	// Api http server.
+	// Api server.
 	apiServer http.Server
-	// Api http server listener.
+	// Api server listener.
 	apiListener net.Listener
-	// Gateway interceptor call chain.
+	// Api server token
+	apiToken string
+	// Gateway intercept chain.
 	intercept []handler.Handler
-	// Gateway notfound call chain.
-	notFound []handler.Handler
-	// Gateway forward call chain.
-	// Key is route and value is call chain.
+	// Gateway notfound chain.
+	notfound []handler.Handler
+	// Gateway forward chain,key is route and value is *gatewayForwarder.
 	forward sync.Map
 }
 
@@ -140,8 +142,8 @@ func (gw *Gateway) Serve() error {
 		gw.intercept = []handler.Handler{new(handler.DefaultInterceptor)}
 	}
 	// Default notFound handler.
-	if len(gw.notFound) == 0 {
-		gw.notFound = []handler.Handler{new(handler.DefaultNotFound)}
+	if len(gw.notfound) == 0 {
+		gw.notfound = []handler.Handler{new(handler.DefaultNotFound)}
 	}
 	// Set handler function.
 	gw.server.Handler = http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
@@ -149,9 +151,8 @@ func (gw *Gateway) Serve() error {
 		ctx.Req = req
 		ctx.Res = res
 		ctx.Data = nil
-		// Interceptor call chain.
-		ctx.Interceptor = gw.intercept
-		for _, h := range ctx.Interceptor {
+		// Intercept  chain.
+		for _, h := range gw.intercept {
 			if !h.Handle(ctx) {
 				contextPool.Put(ctx)
 				return
@@ -160,17 +161,16 @@ func (gw *Gateway) Serve() error {
 		ctx.Path = handler.TopDir(req.URL.Path)
 		value, ok := gw.forward.Load(ctx.Path)
 		if !ok {
-			// NotFound call chain.
-			ctx.NotFound = gw.notFound
-			for _, h := range ctx.NotFound {
+			// NotFound chain.
+			for _, h := range gw.notfound {
 				if !h.Handle(ctx) {
 					break
 				}
 			}
 		} else {
-			// NotFound call chain.
-			ctx.Forward = value.([]handler.Handler)
-			for _, h := range ctx.Forward {
+			// Forward chain.
+			ctx.Forward.Header = make(http.Header)
+			for _, h := range value.([]handler.Handler) {
 				if !h.Handle(ctx) {
 					break
 				}
@@ -182,19 +182,6 @@ func (gw *Gateway) Serve() error {
 	return gw.server.Serve(gw.listener)
 }
 
-func (gw *Gateway) ApiServe() error {
-	if gw.apiListener == nil {
-		return errors.New("api server didn't listen")
-	}
-	// Setup api router.
-	var router router.MethodRouter
-	router.AddPut("/api/interceptors", gw.apiPutInterceptor)
-	// Start serve
-	gw.server.Handler = &router
-	// Start serve
-	return gw.server.Serve(gw.listener)
-}
-
 // Close gateway server and api server.
 func (gw *Gateway) Close() error {
 	gw.server.Close()
@@ -202,54 +189,117 @@ func (gw *Gateway) Close() error {
 	return nil
 }
 
-// Setup forwarder call chain.
-func (gw *Gateway) newForwarder(route string, data []*handler.NewHandlerData) error {
+// Setup forwarder chain.
+func (gw *Gateway) newForward(route string, data []*NewHandlerData) error {
 	route = handler.TopDir(route)
 	if route == "" {
-		return errors.New(`"route" is empty`)
-	}
-	if len(data) == 0 {
-		return errors.New(`"handler" is empty`)
+		return errors.New(`"forward"."route" must define`)
 	}
 	if route[0] != '/' {
 		route = "/" + route
 	}
-	hd, err := newHandlerChain("handler", data)
-	if err != nil {
-		return err
-	}
-	gw.forward.Store(route, hd)
-	return nil
-}
-
-// Setup iterceptor call chain.
-func (gw *Gateway) newInterceptor(data []*handler.NewHandlerData) error {
 	if len(data) == 0 {
-		return errors.New(`"handler" is empty`)
+		return errors.New(`"forward"."route[%s]" must define handler`)
 	}
-	hd, err := newHandlerChain("iterceptor", data)
-	if err != nil {
-		return err
+	forward := make([]*gatewayForwarder, 0)
+	for i, a := range data {
+		hd, err := handler.NewHandler(a.Name, a.Data)
+		if err != nil {
+			return fmt.Errorf(`"forward[%d]" %s`, i, err.Error())
+		}
+		forward = append(forward, &gatewayForwarder{
+			RegisterName: a.Name,
+			Handler:      hd,
+		})
 	}
-	if len(hd) > 0 {
-		gw.intercept = hd
+	value, ok := gw.forward.LoadOrStore(route, forward)
+	if ok {
+		for _, h := range value.([]*gatewayForwarder) {
+			h.Release()
+		}
 	}
 	return nil
 }
 
-// Setup notfound call chain.
-func (gw *Gateway) newNotFound(data []*handler.NewHandlerData) error {
+// Setup iterceptor chain.
+func (gw *Gateway) newIntercept(data []*NewHandlerData) error {
 	if len(data) == 0 {
-		return errors.New(`"handler" is empty`)
+		return errors.New(`"itercept" must define handler`)
 	}
-	hd, err := newHandlerChain("notfound", data)
-	if err != nil {
-		return err
+	for _, h := range gw.intercept {
+		h.Release()
 	}
-	gw.notFound = hd
+	gw.intercept = make([]handler.Handler, 0)
+	for i, a := range data {
+		hd, err := handler.NewHandler(a.Name, a.Data)
+		if err != nil {
+			return fmt.Errorf(`"itercept[%d]" %s`, i, err.Error())
+		}
+		gw.intercept = append(gw.intercept, hd)
+	}
 	return nil
 }
 
-func (gw *Gateway) apiPutInterceptor(c *router.Context) bool {
+// Setup notfound chain.
+func (gw *Gateway) newNotFound(data []*NewHandlerData) error {
+	if len(data) == 0 {
+		return errors.New(`"notfound" must define handler`)
+	}
+	for _, h := range gw.notfound {
+		h.Release()
+	}
+	gw.notfound = make([]handler.Handler, 0)
+	for i, a := range data {
+		hd, err := handler.NewHandler(a.Name, a.Data)
+		if err != nil {
+			return fmt.Errorf(`"notfound[%d]" %s`, i, err.Error())
+		}
+		gw.notfound = append(gw.notfound, hd)
+	}
+	return nil
+}
+
+// Api management serve.
+func (gw *Gateway) ApiServe() error {
+	if gw.apiListener == nil {
+		return errors.New("api server didn't listen")
+	}
+	// Setup api router.
+	var rr router.MethodRouter
+	rr.Interceptor = []router.HandleFunc{func(c *router.Context) bool {
+		// Check authentication token.
+		if c.BearerToken() != gw.apiToken {
+			c.Response.WriteHeader(http.StatusFound)
+			return false
+		}
+		return true
+	}}
+	rr.AddPut("/api/intercepts", gw.apiPutIntercept)
+	rr.AddPut("/api/notfounds", gw.apiPutNotFound)
+	rr.AddPut("/api/forwards", gw.apiPutForward)
+	rr.AddPut("/api/token", gw.apiPutToken)
+	// Start serve
+	gw.server.Handler = &rr
+	// Start serve
+	return gw.server.Serve(gw.listener)
+}
+
+// Put new intercept chain.
+func (gw *Gateway) apiPutIntercept(c *router.Context) bool {
+	return true
+}
+
+// Put new notfound chain.
+func (gw *Gateway) apiPutNotFound(c *router.Context) bool {
+	return true
+}
+
+// Put new forward chain.
+func (gw *Gateway) apiPutForward(c *router.Context) bool {
+	return true
+}
+
+// Put new token.
+func (gw *Gateway) apiPutToken(c *router.Context) bool {
 	return true
 }

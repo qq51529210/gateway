@@ -3,7 +3,9 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/qq51529210/redis"
@@ -32,6 +34,12 @@ type IPInterceptor struct {
 	redis *redis.Client
 }
 
+func (h *IPInterceptor) Release() {
+	if h.redis != nil {
+		h.redis.Close()
+	}
+}
+
 func (h *IPInterceptor) Handle(c *Context) bool {
 	// Split ip address and port.
 	i := strings.IndexByte(c.Req.RemoteAddr, ':')
@@ -39,7 +47,7 @@ func (h *IPInterceptor) Handle(c *Context) bool {
 		return false
 	}
 	// Redis
-	value, err := h.redis.Cmd("get", c.Req.RemoteAddr[:i])
+	value, err := h.redis.Cmd("GET", c.Req.RemoteAddr[:i])
 	if err != nil || value == nil {
 		h.InterceptData.WriteToResponse(c.Res)
 		return false
@@ -48,7 +56,7 @@ func (h *IPInterceptor) Handle(c *Context) bool {
 }
 
 type IPInterceptorData struct {
-	Redis redis.ClientConfig `json:"redis"`
+	Redis *redis.ClientConfig `json:"redis"`
 	InterceptData
 }
 
@@ -56,14 +64,16 @@ type IPInterceptorData struct {
 func (h *IPInterceptor) Update(data interface{}) error {
 	d, ok := data.(*IPInterceptorData)
 	if !ok {
-		return errors.New(`data must be "*IPInterceptorUpdateData" type`)
+		return errors.New(`data must be "*IPInterceptorData" type`)
 	}
 	h.InterceptData = d.InterceptData
 	h.InterceptData.Check(http.StatusForbidden)
-	if h.redis != nil {
-		h.redis.Close()
+	if d.Redis != nil {
+		if h.redis != nil {
+			h.redis.Close()
+		}
+		h.redis = redis.NewClient(nil, d.Redis)
 	}
-	h.redis = redis.NewClient(nil, &d.Redis)
 	return nil
 }
 
@@ -72,14 +82,27 @@ func (h *IPInterceptor) Name() string {
 }
 
 // Create a new IPInterceptor
-func NewIPInterceptor(data *NewHandlerData) (Handler, error) {
-	var d IPInterceptorData
-	err := json.Unmarshal([]byte(data.Data), &d)
-	if err != nil {
-		return nil, err
+func NewIPInterceptor(data interface{}) (Handler, error) {
+	var d *IPInterceptorData
+	switch v := data.(type) {
+	case *IPInterceptorData:
+		d = v
+	case string:
+		err := json.Unmarshal([]byte(v), &d)
+		if err != nil {
+			return nil, err
+		}
+	case map[string]interface{}:
+		d = new(IPInterceptorData)
+		err := Map2Struct(v, d)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("invalid data type %s", reflect.TypeOf(data))
 	}
 	h := new(IPInterceptor)
-	err = h.Update(&d)
+	err := h.Update(d)
 	if err != nil {
 		return nil, err
 	}

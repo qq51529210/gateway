@@ -13,142 +13,141 @@ import (
 )
 
 var (
-	// Create-Handler-Implementation function table.
-	handlerFunc = make(map[string]func(data *NewHandlerData) (Handler, error))
+	// Create-Handler-Implementation-Function table.
+	handlerFunc = make(map[string]NewHandlerFunc)
+	// DefaultForwarder register name.
+	defaultForwarderName = HandlerName(&DefaultForwarder{})
+	// DefaultInterceptor register name.
+	defaultInterceptorRegisterName = HandlerName(&DefaultInterceptor{})
+	// DefaultNotFound register name.
+	defaultNotFoundRegisterName = HandlerName(&DefaultNotFound{})
 )
+
+func init() {
+	// Register Create-Handler-Implementation-Function
+	RegisterHandler(defaultForwarderName, NewDefaultForwarder)
+	RegisterHandler(defaultInterceptorRegisterName, NewDefaultInterceptor)
+	RegisterHandler(defaultNotFoundRegisterName, NewDefaultNotFound)
+}
 
 type Handler interface {
 	// Return false will abort call chain.
 	Handle(*Context) bool
 	// Update self data.
 	Update(interface{}) error
-	// Return register name.
-	Name() string
+	// Release resource
+	Release()
 }
 
-type NewHandlerData struct {
-	// Use for create handler.
-	Name string `json:"name"`
-	// Handler init data.
-	Data string `json:"data"`
-}
+// Create-Handler-Implementation function.
+// Arg data is initial data.
+type NewHandlerFunc func(data interface{}) (Handler, error)
 
-// Register Create-Handler-Implementation function.
-// 做法是在Handler的实现"xxx_handler.go"中的init()注册。
-func RegisterHandler(name string, newFunc func(data *NewHandlerData) (Handler, error)) {
+// Register NewHandlerFunc function,name is key.
+func RegisterHandler(name string, newFunc NewHandlerFunc) {
 	handlerFunc[name] = newFunc
 }
 
-// C 创建Handler，data.Name为空，或者没有注册，将生成DefaultHandler。
-func NewHandler(data *NewHandlerData) (Handler, error) {
-	newFunc, ok := handlerFunc[data.Name]
+// Create Handler by name.If name is empty string,create DefaultForwarder.
+// Arg data will pass to NewHandlerFunc
+func NewHandler(name string, data interface{}) (Handler, error) {
+	newFunc, ok := handlerFunc[name]
 	if !ok {
-		return NewDefaultHandler(data)
+		return NewDefaultForwarder(data)
 	}
 	h, err := newFunc(data)
 	if err != nil {
-		return nil, fmt.Errorf(`"%s" %s`, data.Name, err.Error())
+		return nil, fmt.Errorf(`"%s" %s`, name, err.Error())
 	}
 	return h, nil
 }
 
-// 返回h所在的包和结构。在注册时很有用。
-// 比如，DefaultHandler返回的是"github.com/qq51529210/gateway/handler/DefaultHandler"。
-// 代码编译阶段就可以避免重名的情况。
+// Return Handler h package path and struct name.Use for RegisterHandler function.
+// Example: DefaultForwarder return "github.com/qq51529210/gateway/handler/DefaultForwarder".
 func HandlerName(h Handler) string {
 	_type := reflect.TypeOf(h).Elem()
 	return _type.PkgPath() + "/" + _type.Name()
 }
 
-// 检查handler长度和nil
-func CheckHandlers(handler ...Handler) error {
-	if len(handler) < 1 {
-		return fmt.Errorf("empty handler slice")
-	}
-	for i, h := range handler {
-		if h == nil {
-			return fmt.Errorf("handler[%d] is nil", i)
-		}
-	}
-	return nil
+// Return DefaultForwarder register name.
+func DefaultForwarderName() string {
+	return defaultForwarderName
 }
 
-var (
-	defaultHandlerName = HandlerName(&DefaultHandler{}) // handler的名称
-)
-
-// 返回DefaultHandler的注册名称
-func DefaultHandlerName() string {
-	return defaultHandlerName
+// DefaultForwarder initial data.
+type NewDefaultForwarderData struct {
+	// Http service url like "http://host/src?a=1".
+	// Must be define.
+	RequestUrl string `json:"requestUrl"`
+	// Forward request timeout,millisecond.
+	RequestTimeout int `json:"requestTimeout"`
+	// Which heads will be forward.
+	// If it's empty,forward all headers.
+	RequestHeader []string `json:"requestHeader"`
+	// Addition heads add to forward request.
+	RequestAdditionHeader map[string]string `json:"requestAdditionHeader"`
+	// Addition heads add to forward response.
+	ResponseAdditionHeader map[string]string `json:"responseAdditionHeader"`
 }
 
-// DefaultHandler初始化数据
-type DefaultHandlerData struct {
-	RequestUrl             string            `json:"requestUrl"`             // 转发请求的服务地址，必须
-	RequestTimeout         int               `json:"requestTimeout"`         // 转发请求超时，单位毫秒，可选
-	RequestHeader          []string          `json:"requestHeader"`          // 转发请求header，可选
-	RequestAdditionHeader  map[string]string `json:"requestAdditionHeader"`  // 转发请求附加的header，可选
-	ResponseAdditionHeader map[string]string `json:"responseAdditionHeader"` // 转发相应附加的header，可选
+// Forward HTTP request.
+type DefaultForwarder struct {
+	// Foward url.
+	RequestUrl *url.URL
+	// Forward request timeout,millisecond.
+	RequestTimeout time.Duration
+	// Which heads will be forward.
+	// If it's empty,forward all headers.
+	RequestHeader map[string]int
+	// Addition heads add to forward request.
+	RequestAdditionHeader map[string]string
+	// Addition heads add to forward response.
+	ResponseAdditionHeader map[string]string
 }
 
-// 默认处理，只是转发
-type DefaultHandler struct {
-	RequestUrl             *url.URL          // 转发请求的服务地址
-	RequestTimeout         time.Duration     // 转发请求超时，单位毫秒
-	RequestHeader          map[string]int    // 转发请求header
-	RequestAdditionHeader  map[string]string // 转发请求附加的header
-	ResponseAdditionHeader map[string]string // 转发相应附加的header
-}
-
-// Handler接口
-func (h *DefaultHandler) Name() string {
-	return defaultHandlerName
-}
-
-// Handler接口
-func (h *DefaultHandler) Handle(c *Context) bool {
-	// 转发的url
-	var request http.Request
-	request.Method = c.Req.Method
-	request.URL = new(url.URL)
-	*request.URL = *h.RequestUrl
-	request.URL.Path = c.Req.URL.Path[len(c.Path):]
-	request.URL.RawQuery = c.Req.URL.RawQuery
-	request.URL.RawFragment = c.Req.URL.RawFragment
-	request.ContentLength = c.Req.ContentLength
-	// 提取指定转发的header
-	request.Header = make(http.Header)
+func (h *DefaultForwarder) Handle(c *Context) bool {
+	// Forwad url.
+	c.Forward.Method = c.Req.Method
+	*c.Forward.URL = *h.RequestUrl
+	c.Forward.URL.Path = c.Req.URL.Path[len(c.Path):]
+	c.Forward.URL.RawQuery = c.Req.URL.RawQuery
+	c.Forward.URL.RawFragment = c.Req.URL.RawFragment
+	c.Forward.ContentLength = c.Req.ContentLength
+	// Forward headers.
 	if len(h.RequestHeader) < 1 {
+		// Forward all headers.
 		for k := range c.Req.Header {
-			request.Header.Set(k, c.Req.Header.Get(k))
+			c.Forward.Header.Set(k, c.Req.Header.Get(k))
 		}
 	} else {
+		// Forward specified headers.
 		for k := range h.RequestHeader {
 			v := c.Req.Header.Get(k)
 			if v != "" {
-				request.Header.Set(k, v)
+				c.Forward.Header.Set(k, v)
 			}
 		}
 	}
-	// 附加的header
+	// Addition headers
 	for k, v := range h.RequestAdditionHeader {
-		request.Header.Set(k, v)
+		c.Forward.Header.Set(k, v)
 	}
-	request.Body = c.Req.Body
-	// 转发请求
+	c.Forward.Body = c.Req.Body
+	// Do request.
 	client := &http.Client{Timeout: h.RequestTimeout}
-	response, err := client.Do(&request)
+	response, err := client.Do(&c.Forward)
 	if err != nil {
 		fmt.Println(err)
 		return false
 	}
-	// 转发结果
+	// Response headers.
 	header := c.Res.Header()
 	for k, v := range response.Header {
 		for _, s := range v {
 			header.Add(k, s)
 		}
 	}
+	// Response addition headers.
 	for k, v := range h.ResponseAdditionHeader {
 		header.Add(k, v)
 	}
@@ -157,11 +156,14 @@ func (h *DefaultHandler) Handle(c *Context) bool {
 	return true
 }
 
-// Handler接口，data是*DefaultHandlerData
-func (h *DefaultHandler) Update(data interface{}) error {
-	d, ok := data.(*DefaultHandlerData)
+// Arg data is *DefaultForwarderData type.
+func (h *DefaultForwarder) Update(data interface{}) error {
+	if data == nil {
+		return errors.New(`data must be defined`)
+	}
+	d, ok := data.(*NewDefaultForwarderData)
 	if !ok {
-		return errors.New(`data must be "*DefaultHandlerData"`)
+		return errors.New(`data must be "*DefaultForwarderData" type`)
 	}
 	// requestUrl
 	requestUrl, err := url.Parse(d.RequestUrl)
@@ -197,19 +199,28 @@ func (h *DefaultHandler) Update(data interface{}) error {
 	return nil
 }
 
-// 创建DefaultHandler的函数，已经注册。data的格式为
-// {
-// 	"name": "github.com/qq51529210/gateway/handler/DefaultHandler",
-// 	"data": "DefaultHandlerData的json字符串"
-// }
-func NewDefaultHandler(data *NewHandlerData) (Handler, error) {
-	var d DefaultHandlerData
-	err := json.Unmarshal([]byte(data.Data), &d)
-	if err != nil {
-		return nil, err
+func (h *DefaultForwarder) Release() {
+
+}
+
+// Create DefaultForwarder function.
+func NewDefaultForwarder(data interface{}) (Handler, error) {
+	var d NewDefaultForwarderData
+	switch v := data.(type) {
+	case *NewDefaultForwarderData:
+	case map[string]interface{}:
+	case string:
+		// Json string.
+		err := json.Unmarshal([]byte(v), &d)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unsupport data type %s", reflect.TypeOf(data).Kind().String())
 	}
-	h := new(DefaultHandler)
-	err = h.Update(&d)
+
+	h := new(DefaultForwarder)
+	err := h.Update(&d)
 	if err != nil {
 		return nil, err
 	}
@@ -219,89 +230,68 @@ func NewDefaultHandler(data *NewHandlerData) (Handler, error) {
 	return h, nil
 }
 
-var (
-	defaultInterceptorRegisterName = HandlerName(&DefaultInterceptor{}) // 注册名称
-)
-
-func init() {
-	RegisterHandler(defaultInterceptorRegisterName, NewDefaultInterceptor) // 注册
-}
-
-// 获取注册名称
+// Return DefaultInterceptor register name.
 func DefaultInterceptorRegisterName() string {
 	return defaultInterceptorRegisterName
 }
 
-// 什么都不做
+// This Handler will do nothing.
 type DefaultInterceptor struct {
 }
 
-// 实现接口
 func (h *DefaultInterceptor) Handle(c *Context) bool {
 	return true
 }
 
-// 实现接口
 func (h *DefaultInterceptor) Update(data interface{}) error {
 	return nil
 }
 
-// 实现接口
-func (h *DefaultInterceptor) Name() string {
-	return defaultInterceptorRegisterName
+func (h *DefaultInterceptor) Release() {
+
 }
 
-func NewDefaultInterceptor(data *NewHandlerData) (Handler, error) {
+// Create DefaultInterceptor function.
+func NewDefaultInterceptor(data interface{}) (Handler, error) {
 	return new(DefaultInterceptor), nil
 }
 
-var (
-	defaultNotFoundRegisterName = HandlerName(&DefaultNotFound{}) // handler的名称
-)
-
-func init() {
-	RegisterHandler(defaultNotFoundRegisterName, NewDefaultNotFound) // 注册
-}
-
-// 获取注册名称
+// Return DefaultNotFound register name.
 func DefaultNotFoundRegisterName() string {
 	return defaultNotFoundRegisterName
 }
 
-// 默认匹配失败处理，返回404
+// This Handler return status code 404 and custom message.
 type DefaultNotFound struct {
-	Data string
+	InterceptData
 }
 
-// Handler接口
 func (h *DefaultNotFound) Handle(c *Context) bool {
-	c.Res.WriteHeader(http.StatusNotFound)
-	io.WriteString(c.Res, h.Data)
+	h.InterceptData.WriteToResponse(c.Res)
 	return true
 }
 
-// Handler接口
+// Arg data is *InterceptData type.
 func (h *DefaultNotFound) Update(data interface{}) error {
-	s, ok := data.(string)
-	if ok && s != "" {
-		h.Data = s
+	if data != nil {
+		d, ok := data.(*InterceptData)
+		if ok {
+			return errors.New(`data must be "*InterceptData"`)
+		}
+		h.InterceptData = *d
 	}
+	h.InterceptData.Check(http.StatusNotFound)
 	return nil
 }
 
-// Handler接口
-func (h *DefaultNotFound) Name() string {
-	return defaultNotFoundRegisterName
+func (h *DefaultNotFound) Release() {
+
 }
 
-// 创建DefaultNotFound，已经注册。data的格式为
-// {
-// 	"name": "github.com/qq51529210/gateway/handler/DefaultNotFound",
-// 	"data": "html文本"
-// }
-func NewDefaultNotFound(data *NewHandlerData) (Handler, error) {
+// Create DefaultNotFound function.
+func NewDefaultNotFound(data interface{}) (Handler, error) {
 	h := new(DefaultNotFound)
-	h.Update(data.Data)
+	h.Update(data)
 	return h, nil
 }
 
