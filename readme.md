@@ -1,98 +1,131 @@
 # gateway
-使用golang基于标准库net/http开发的网关。
 
-## 设计与使用
+A http gateway application written in Golang.
+It is designed in plug-in mode,so it is easy to add,update,remove functions.
+To add a new function you need to implement interface Handler and call RegisterHandler to register your Handler.
+Than you can modify or remove Handler in application runtime.
 
-1. 主要的逻辑代码如下，所以只要实现了相应步骤的调用链中的Handler就可以了。
+## Main logic
 
 ```go
-func ServeHTTP(...){
-  // 第一步，执行拦截的调用链
-  Interceptors.Handle()
-  // 第二步，如果是转发的路由
-  Handlers.Handle()
-  // 第二步，如果不匹配路由
-  NotFound.Handle()
+func ServeHTTP(){
+  // First call intercept handler chain.
+  // If top directory of request url path is route,call forward handler chain.
+  // Else,call notfound handler chain.
 }
 ```
 
-2. 添加一个新的功能，只需要调用RegisterHandler()注册，就可以动态生成实例，不需要改动原来的代码。下面是[handler/default_handler.go](./handler/default_handler.go)中的代码片段。
+## How to add a new Handler code
 
 ```go
 var (
-	ipInterceptorRegisterName = HandlerName(&IPInterceptor{}) // 实现的Handler的注册名称
+	myHandlerRegisterName = HandlerName(&MyHandler{})
 )
 
 func init() {
-	RegisterHandler(ipInterceptorRegisterName, NewIPAddrInterceptor) // 注册
+	RegisterHandler(myHandlerRegisterName, NewMyHandler)
+}
+
+func NewMyHandler(data interface{}) (Handler, error){
+  h:=new(MyHandler)
+  h.Update(data)
+  return h, nil
+}
+
+type MyHandler struct {
+  // Fields
+}
+
+func (h*MyHandler)Handle(c *Context)bool{
+  // Handle request
+  return true
+}
+
+func (h*MyHandler)Update(data interface{})error{
+  // Update MyHandler field
+  return nil
 }
 ```
 
-3. 根据数据，动态生成Handler的调用链。
+## Create customer handler chain by configure
 
 ```go
-	// 生成网关Gateway实例
-	return NewGateway(&NewGatewayData{
-    Listen: ":33966",
-    Interceptor: []*handler.NewHandlerData{
-				{
-					Name: Interceptor1, // 实现的Handler的注册名称
-					Data: Data1, // Interceptor1初始化的数据，字符串
-				},
-				{
-					Name: handler.IPInterceptorRegisterName(), // 包里实现的IPInterceptor
-          Data: Data2, // IPInterceptor初始化的数据，格式看NewIPAddrInterceptor()函数的说明
-				},
-				{
-					Name: Interceptor3,
-					Data: Data3,
-				},
-    },
-    NotFound: []*handler.NewHandlerData{
-				{
-					Name: NotFound1,
-					Data: Data1,
-				},
-				{
-					Name: NotFound2,
-					Data: Data2,
-				},
-    },
-		Handler: map[string][]*handler.NewHandlerData{
-    },
-			routue1: { // 路由，比如"/user"
-				{
-					Name: Handler1,
-					Data: Data1,
-				},
-				{
-					Name: handler.DefaultHandlerName(), // 包里实现的DefaultHandler
-					Data: Data2, // DefaultHandler初始化的数据，格式看NewDefaultHandler()函数的说明
-				},
-			},
-			routue2: {
-				{
-					Name: handler.DefaultHandlerName(),
-					Data: Data,
-				},
-			},
-		},
-	})
+var cfg NewGatewayData{}
+LocaConfig(&cfg)
+app := NewGateway(&cfg)
 ```
 
-   
+## Update handler chain in application runtime
 
-## 已实现的功能
+Provide HTTP-API to manage handler chain.
 
-- 默认拦截[DefaultInterceptor.go](./handler/ip_interceptor.go)，什么都不做。
-- 默认转发[DefaultHandler.go](./handler/default_handler.go)，可以指定转发哪些header，附加额外的请求和响应header。
-- 默认404[DefaultNotfound.go](./handler/default_notfound.go)，返回404和一些文本。
-- IP拦截[IPInterceptor.go](./handler/ip_interceptor.go)，拦截指定的IP地址。
-- 身份认证拦截[AuthenticationInterceptor.go](./handler/authentication_interceptor.go)，先检查cookie，如果没有再检查Authorization的请求头。拦截成功返回403和文本。
+```go
+func UpdateIntercept(){
+  // Initial intercept handlers.
+  // Convert to json.
+  // HTTP-API request.
+}
+```
 
-## 待实现的功能
+## Handler list
 
-- 限流
-- 熔断
-- 调用链起始节点
-- 管理
+- [DefaultInterceptor](./handler/handler.go)
+
+  This handler do nothing.
+
+- [DefaultForward](./handler/handler.go)
+
+  Forward request and response.You can specify which request headers to forward,additional headers for request and response.
+
+- [DefaultNotfound](./handler/handler.go)
+
+  Response 404 and message.Both of two can be specified.
+
+- [IPInterceptor](./handler/ip_interceptor.go)
+
+  Itercept request be ip address,response 403 and message.
+
+  Use redis to store ip.
+
+- [AuthenticationInterceptor](./handler/authentication_interceptor.go)
+
+  Check cookie or "Authorization" header for token,if not found,response 401 and message.
+
+  Use redis to store token.
+
+## Other Handler to be implemented.
+
+- Current limiting
+
+- Fusing
+
+## HTTP-API
+
+Provide http-api to manage application runtime handler chain.You should run api server first.
+
+```go
+// To run api server
+var cfg NewGatewayData{
+  "api-listen":""
+  "api-token":""
+}
+app := NewGateway(&cfg)
+```
+
+- Intercept
+
+  | path        | method | content-type     | token     | body             |
+  | ----------- | ------ | ---------------- | --------- | ---------------- |
+  | /intercepts | put    | application/json | api-token | []NewHandlerData |
+
+- NotFound
+
+  | path       | method | content-type     | token     | body             |
+  | ---------- | ------ | ---------------- | --------- | ---------------- |
+  | /notfounds | put    | application/json | api-token | []NewHandlerData |
+
+- Forward
+
+  | path      | method | content-type     | token     | body             |
+  | --------- | ------ | ---------------- | --------- | ---------------- |
+  | /forwards | put    | application/json | api-token | []NewHandlerData |
