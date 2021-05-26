@@ -2,3 +2,5 @@ github.com/qq51529210/http-router v0.0.0-20210524175734-7fccad180f67 h1:BBtf/N9m
 github.com/qq51529210/http-router v0.0.0-20210524175734-7fccad180f67/go.mod h1:8hNCFmBvjhuGlz0sTreQA8kngEO/3rAP/isC2HDBem0=
 github.com/qq51529210/redis v0.0.0-20210524114315-51a1711dae12 h1:G8L5O9B5UY7xm3VU9pATkSTA7zL9X2OzC63yJsbbbZA=
 github.com/qq51529210/redis v0.0.0-20210524114315-51a1711dae12/go.mod h1:h5fsGqGToDjifLPXqH7/2e6Zjd7XHp6+YmRi1jeCBZo=
+github.com/qq51529210/redis v0.0.0-20210526054006-bc3647eaa041 h1:Qoh4INtpDGGccIdSlYa6JiqIcdhdaYZ1dXNnfk78k7I=
+github.com/qq51529210/redis v0.0.0-20210526054006-bc3647eaa041/go.mod h1:h5fsGqGToDjifLPXqH7/2e6Zjd7XHp6+YmRi1jeCBZo=

@@ -35,6 +35,12 @@ func (r *testResponse) WriteHeader(n int) {
 	r.statusCode = n
 }
 
+func (r *testResponse) Reset() {
+	r.statusCode = 0
+	r.header = make(http.Header)
+	r.body.Reset()
+}
+
 func Test_DefaultForwarder(t *testing.T) {
 	d := &NewDefaultForwarderData{
 		RequestUrl:             "http://127.0.0.1:3391",
@@ -96,7 +102,9 @@ func Test_DefaultForwarder(t *testing.T) {
 	}
 	res := new(testResponse)
 	c.Res = res
-	h.Handle(&c)
+	if h.Handle(&c) {
+		t.FailNow()
+	}
 	ser.Close()
 	// Check server error.
 	if serErr != nil {
@@ -139,7 +147,9 @@ func Test_DefaultNotFound(t *testing.T) {
 	res := &testResponse{}
 	var c Context
 	c.Res = res
-	h.Handle(&c)
+	if h.Handle(&c) {
+		t.FailNow()
+	}
 
 	if res.statusCode != data.StatusCode {
 		t.FailNow()

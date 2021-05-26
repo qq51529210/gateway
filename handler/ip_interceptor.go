@@ -48,7 +48,7 @@ func (h *IPInterceptor) Handle(c *Context) bool {
 	}
 	// Redis
 	value, err := h.redis.Cmd("GET", c.Req.RemoteAddr[:i])
-	if err != nil || value == nil {
+	if err != nil || value != nil {
 		h.InterceptData.WriteToResponse(c.Res)
 		return false
 	}
@@ -100,6 +100,9 @@ func NewIPInterceptor(data interface{}) (Handler, error) {
 		}
 	default:
 		return nil, fmt.Errorf("invalid data type %s", reflect.TypeOf(data))
+	}
+	if d.Redis == nil {
+		d.Redis = &redis.ClientConfig{}
 	}
 	h := new(IPInterceptor)
 	err := h.Update(d)
