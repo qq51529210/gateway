@@ -38,9 +38,9 @@ func Test_DefaultForwarder(t *testing.T) {
 	d := &NewDefaultForwarderData{
 		RequestUrl:             "http://127.0.0.1:3391",
 		RequestTimeout:         3000,
-		RequestHeader:          []string{"reqHeader1", "reqHeader2", "reqHeader3"},
-		RequestAdditionHeader:  map[string]string{"reqAddHeader1": "1", "reqAddHeader2": "2"},
-		ResponseAdditionHeader: map[string]string{"resAddHeader1": "1", "resAddHeader2": "2"},
+		RequestHeader:          []string{"Req-Header1", "Req-Header2", "Req-Header3"},
+		RequestAdditionHeader:  map[string]string{"Req-Add-Header1": "1", "Req-Add-Header2": "2"},
+		ResponseAdditionHeader: map[string]string{"Res-Add-Header1": "1", "Res-Add-Header2": "2"},
 	}
 	h, err := NewHandler(DefaultForwarderName(), d)
 	if err != nil {
@@ -48,14 +48,14 @@ func Test_DefaultForwarder(t *testing.T) {
 	}
 	reqBody := "req body"
 	resCode := 201
-	resHeader := []string{"resHeader1", "resHeader2"}
+	resHeader := []string{"Res-Header1", "Res-Header2"}
 	resBody := "res body"
+	// Service serve
 	var ser http.Server
 	var serErr error
 	go func() {
 		ser.Addr = "127.0.0.1:3391"
 		ser.Handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			defer ser.Close()
 			// Check headers.
 			for _, k := range d.RequestHeader {
 				_, o := r.Header[k]
@@ -65,7 +65,7 @@ func Test_DefaultForwarder(t *testing.T) {
 				}
 			}
 			// Check addition headers.
-			for _, k := range d.RequestAdditionHeader {
+			for k := range d.RequestAdditionHeader {
 				_, o := r.Header[k]
 				if !o {
 					serErr = fmt.Errorf("addition header %s not found", k)
@@ -73,10 +73,10 @@ func Test_DefaultForwarder(t *testing.T) {
 				}
 			}
 			// Response
-			rw.WriteHeader(resCode)
 			for _, k := range resHeader {
 				rw.Header().Add(k, "1")
 			}
+			rw.WriteHeader(resCode)
 			io.WriteString(rw, resBody)
 		})
 		ser.ListenAndServe()
@@ -96,6 +96,7 @@ func Test_DefaultForwarder(t *testing.T) {
 	res := new(testResponse)
 	c.Res = res
 	h.Handle(&c)
+	ser.Close()
 	// Check server error.
 	if serErr != nil {
 		t.Fatal(serErr)

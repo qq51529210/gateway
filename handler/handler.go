@@ -30,6 +30,17 @@ func init() {
 	RegisterHandler(defaultNotFoundRegisterName, NewDefaultNotFound)
 }
 
+// The data passed in Handler call chain.
+type Context struct {
+	Res http.ResponseWriter
+	Req *http.Request
+	// Service route path.
+	// Top dir of request url path.
+	Path string
+	// Used for save and pass temp data in Handler call chain.
+	Data interface{}
+}
+
 type Handler interface {
 	// Return false will abort call chain.
 	Handle(*Context) bool
@@ -63,10 +74,10 @@ func NewHandler(name string, data interface{}) (Handler, error) {
 }
 
 // Return Handler h package path and struct name.Use for RegisterHandler function.
-// Example: DefaultForwarder return "github.com/qq51529210/gateway/handler/DefaultForwarder".
+// Example: DefaultForwarder return "github.com/qq51529210/gateway/handler.DefaultForwarder".
 func HandlerName(h Handler) string {
 	_type := reflect.TypeOf(h).Elem()
-	return _type.PkgPath() + "/" + _type.Name()
+	return _type.PkgPath() + "." + _type.Name()
 }
 
 // Return DefaultForwarder register name.
@@ -106,36 +117,39 @@ type DefaultForwarder struct {
 }
 
 func (h *DefaultForwarder) Handle(c *Context) bool {
-	// Forwad url.
-	c.Forward.Method = c.Req.Method
-	*c.Forward.URL = *h.RequestUrl
-	c.Forward.URL.Path = c.Req.URL.Path[len(c.Path):]
-	c.Forward.URL.RawQuery = c.Req.URL.RawQuery
-	c.Forward.URL.RawFragment = c.Req.URL.RawFragment
-	c.Forward.ContentLength = c.Req.ContentLength
+	// Init forward http.Request.
+	var request http.Request
+	request.Method = c.Req.Method
+	request.URL = new(url.URL)
+	*request.URL = *h.RequestUrl
+	request.URL.Path = c.Req.URL.Path[len(c.Path):]
+	request.URL.RawQuery = c.Req.URL.RawQuery
+	request.URL.RawFragment = c.Req.URL.RawFragment
+	request.ContentLength = c.Req.ContentLength
 	// Forward headers.
+	request.Header = make(http.Header)
 	if len(h.RequestHeader) < 1 {
 		// Forward all headers.
 		for k := range c.Req.Header {
-			c.Forward.Header.Set(k, c.Req.Header.Get(k))
+			request.Header.Set(k, c.Req.Header.Get(k))
 		}
 	} else {
 		// Forward specified headers.
 		for k := range h.RequestHeader {
 			v := c.Req.Header.Get(k)
 			if v != "" {
-				c.Forward.Header.Set(k, v)
+				request.Header.Set(k, v)
 			}
 		}
 	}
 	// Addition headers
 	for k, v := range h.RequestAdditionHeader {
-		c.Forward.Header.Set(k, v)
+		request.Header.Set(k, v)
 	}
-	c.Forward.Body = c.Req.Body
+	request.Body = c.Req.Body
 	// Do request.
 	client := &http.Client{Timeout: h.RequestTimeout}
-	response, err := client.Do(&c.Forward)
+	response, err := client.Do(&request)
 	if err != nil {
 		fmt.Println(err)
 		return false
@@ -205,13 +219,19 @@ func (h *DefaultForwarder) Release() {
 
 // Create DefaultForwarder function.
 func NewDefaultForwarder(data interface{}) (Handler, error) {
-	var d NewDefaultForwarderData
+	var d *NewDefaultForwarderData
 	switch v := data.(type) {
 	case *NewDefaultForwarderData:
+		d = v
 	case map[string]interface{}:
+		d = new(NewDefaultForwarderData)
+		err := Map2Struct(v, d)
+		if err != nil {
+			return nil, err
+		}
 	case string:
 		// Json string.
-		err := json.Unmarshal([]byte(v), &d)
+		err := json.Unmarshal([]byte(v), d)
 		if err != nil {
 			return nil, err
 		}
@@ -220,7 +240,7 @@ func NewDefaultForwarder(data interface{}) (Handler, error) {
 	}
 
 	h := new(DefaultForwarder)
-	err := h.Update(&d)
+	err := h.Update(d)
 	if err != nil {
 		return nil, err
 	}
@@ -247,9 +267,7 @@ func (h *DefaultInterceptor) Update(data interface{}) error {
 	return nil
 }
 
-func (h *DefaultInterceptor) Release() {
-
-}
+func (h *DefaultInterceptor) Release() {}
 
 // Create DefaultInterceptor function.
 func NewDefaultInterceptor(data interface{}) (Handler, error) {
@@ -284,9 +302,7 @@ func (h *DefaultNotFound) Update(data interface{}) error {
 	return nil
 }
 
-func (h *DefaultNotFound) Release() {
-
-}
+func (h *DefaultNotFound) Release() {}
 
 // Create DefaultNotFound function.
 func NewDefaultNotFound(data interface{}) (Handler, error) {
