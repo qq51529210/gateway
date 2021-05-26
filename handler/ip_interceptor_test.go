@@ -17,9 +17,9 @@ func Test_IPInterceptor(t *testing.T) {
 	}
 
 	ip := "192.168.1.2"
-	ipInterceptor := h.(*IPInterceptor)
-	ipInterceptor.redis.Cmd("del", ip)
-	ipInterceptor.redis.Cmd("set", ip, 1)
+	hd := h.(*IPInterceptor)
+	hd.redis.Cmd("del", ip)
+	hd.redis.Cmd("set", ip, 1)
 
 	res := &testResponse{}
 	var c Context
@@ -27,33 +27,14 @@ func Test_IPInterceptor(t *testing.T) {
 		RemoteAddr: ip + ":12345",
 	}
 	c.Res = res
-	if h.Handle(&c) {
-		t.FailNow()
-	}
-
-	if res.statusCode != data.StatusCode {
-		t.FailNow()
-	}
-	if res.Header().Get("Content-Type") != data.ContentType {
-		t.FailNow()
-	}
-	if res.body.String() != data.Message {
+	if h.Handle(&c) || res.statusCode != data.StatusCode || res.Header().Get("Content-Type") != data.ContentType || res.body.String() != data.Message {
 		t.FailNow()
 	}
 
 	ip = "192.168.1.3"
 	res.Reset()
 	c.Req.RemoteAddr = ip + ":12345"
-	if !h.Handle(&c) {
-		t.FailNow()
-	}
-	if res.statusCode == data.StatusCode {
-		t.FailNow()
-	}
-	if res.Header().Get("Content-Type") == data.ContentType {
-		t.FailNow()
-	}
-	if res.body.String() == data.Message {
+	if !h.Handle(&c) || res.statusCode == data.StatusCode || res.Header().Get("Content-Type") == data.ContentType || res.body.String() == data.Message {
 		t.FailNow()
 	}
 }

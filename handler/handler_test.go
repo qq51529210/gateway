@@ -147,17 +147,7 @@ func Test_DefaultNotFound(t *testing.T) {
 	res := &testResponse{}
 	var c Context
 	c.Res = res
-	if h.Handle(&c) {
-		t.FailNow()
-	}
-
-	if res.statusCode != data.StatusCode {
-		t.FailNow()
-	}
-	if res.Header().Get("Content-Type") != data.ContentType {
-		t.FailNow()
-	}
-	if res.body.String() != data.Message {
+	if h.Handle(&c) || res.statusCode != data.StatusCode || res.Header().Get("Content-Type") != data.ContentType || res.body.String() != data.Message {
 		t.FailNow()
 	}
 }

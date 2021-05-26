@@ -169,7 +169,6 @@ func (gw *Gateway) Serve() error {
 			}
 		} else {
 			// Forward chain.
-			ctx.Forward.Header = make(http.Header)
 			for _, h := range value.([]handler.Handler) {
 				if !h.Handle(ctx) {
 					break
@@ -274,10 +273,10 @@ func (gw *Gateway) ApiServe() error {
 		}
 		return true
 	}}
-	rr.AddPut("/api/intercepts", gw.apiPutIntercept)
-	rr.AddPut("/api/notfounds", gw.apiPutNotFound)
-	rr.AddPut("/api/forwards", gw.apiPutForward)
-	rr.AddPut("/api/token", gw.apiPutToken)
+	rr.AddPut("/api/intercepts", gw.ApiPutIntercept)
+	rr.AddPut("/api/notfounds", gw.ApiPutNotFound)
+	rr.AddPut("/api/forwards", gw.ApiPutForward)
+	rr.AddPut("/api/token", gw.ApiPutToken)
 	// Start serve
 	gw.server.Handler = &rr
 	// Start serve
@@ -285,21 +284,21 @@ func (gw *Gateway) ApiServe() error {
 }
 
 // Put new intercept chain.
-func (gw *Gateway) apiPutIntercept(c *router.Context) bool {
+func (gw *Gateway) ApiPutIntercept(c *router.Context) bool {
 	return true
 }
 
 // Put new notfound chain.
-func (gw *Gateway) apiPutNotFound(c *router.Context) bool {
+func (gw *Gateway) ApiPutNotFound(c *router.Context) bool {
 	return true
 }
 
 // Put new forward chain.
-func (gw *Gateway) apiPutForward(c *router.Context) bool {
+func (gw *Gateway) ApiPutForward(c *router.Context) bool {
 	return true
 }
 
 // Put new token.
-func (gw *Gateway) apiPutToken(c *router.Context) bool {
+func (gw *Gateway) ApiPutToken(c *router.Context) bool {
 	return true
 }

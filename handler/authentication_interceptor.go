@@ -48,8 +48,8 @@ func (h *AuthenticationInterceptor) Handle(c *Context) bool {
 		cookie, _ := c.Req.Cookie(h.CookieName)
 		// Has cookie
 		if cookie != nil {
-			_, err := h.redis.Cmd("GET", cookie.Value)
-			if err == nil {
+			value, err := h.redis.Cmd("GET", cookie.Value)
+			if err == nil && value != nil {
 				return true
 			}
 		}
@@ -59,8 +59,8 @@ func (h *AuthenticationInterceptor) Handle(c *Context) bool {
 	if str != "" {
 		const bearerTokenPrefix = "Bearer "
 		if strings.HasPrefix(str, bearerTokenPrefix) {
-			_, err := h.redis.Cmd("GET", str[len(bearerTokenPrefix):])
-			if err == nil {
+			value, err := h.redis.Cmd("GET", str[len(bearerTokenPrefix):])
+			if err == nil && value != nil {
 				return true
 			}
 		}
@@ -83,8 +83,10 @@ func (h *AuthenticationInterceptor) Update(data interface{}) error {
 		}
 		h.redis = redis.NewClient(nil, d.Redis)
 	}
-	if h.CookieName == "" {
+	if d.CookieName == "" {
 		h.CookieName = "token"
+	} else {
+		h.CookieName = d.CookieName
 	}
 	return nil
 }
@@ -114,6 +116,9 @@ func NewAuthenticationInterceptor(data interface{}) (Handler, error) {
 		}
 	default:
 		return nil, fmt.Errorf("invalid data type %s", reflect.TypeOf(data))
+	}
+	if d.Redis == nil {
+		d.Redis = new(redis.ClientConfig)
 	}
 	h := new(AuthenticationInterceptor)
 	err := h.Update(d)
