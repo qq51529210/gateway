@@ -213,9 +213,7 @@ func (h *DefaultForwarder) Update(data interface{}) error {
 	return nil
 }
 
-func (h *DefaultForwarder) Release() {
-
-}
+func (h *DefaultForwarder) Release() {}
 
 // Create DefaultForwarder function.
 func NewDefaultForwarder(data interface{}) (Handler, error) {
@@ -293,7 +291,7 @@ func (h *DefaultNotFound) Handle(c *Context) bool {
 func (h *DefaultNotFound) Update(data interface{}) error {
 	if data != nil {
 		d, ok := data.(*InterceptData)
-		if ok {
+		if !ok {
 			return errors.New(`data must be "*InterceptData"`)
 		}
 		h.InterceptData = *d

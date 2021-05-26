@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 	"testing"
@@ -121,6 +122,32 @@ func Test_DefaultForwarder(t *testing.T) {
 	}
 	// Check body.
 	if res.body.String() != resBody {
+		t.FailNow()
+	}
+}
+
+func Test_DefaultNotFound(t *testing.T) {
+	var data InterceptData
+	data.StatusCode = 401
+	data.ContentType = mime.TypeByExtension(".json")
+	data.Message = `{"message": "Service not found!"}`
+	h, err := NewHandler(DefaultNotFoundRegisterName(), &data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := &testResponse{}
+	var c Context
+	c.Res = res
+	h.Handle(&c)
+
+	if res.statusCode != data.StatusCode {
+		t.FailNow()
+	}
+	if res.Header().Get("Content-Type") != data.ContentType {
+		t.FailNow()
+	}
+	if res.body.String() != data.Message {
 		t.FailNow()
 	}
 }
