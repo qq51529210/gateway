@@ -364,7 +364,7 @@ func readJSON(c *router.Context, v interface{}) bool {
 	if ok {
 		for _, value := range values {
 			if value == "appcalition/json" {
-				err := json.NewDecoder(c.Req.Body).Decode(value)
+				err := json.NewDecoder(c.Req.Body).Decode(v)
 				if err != nil {
 					c.WriteJSON(http.StatusBadRequest, map[string]string{
 						"error": "parse JSON failed",
