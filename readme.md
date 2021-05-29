@@ -114,18 +114,18 @@ app := NewGateway(&cfg)
 
 - Intercept
 
-  | path        | method | content-type     | token     | body             |
-  | ----------- | ------ | ---------------- | --------- | ---------------- |
-  | /intercepts | put    | application/json | api-token | []NewHandlerData |
+  | path        | method | content-type     | token     | body                   |
+  | ----------- | ------ | ---------------- | --------- | ---------------------- |
+  | /intercepts | put    | application/json | api-token | json([]NewHandlerData) |
 
 - NotFound
 
-  | path       | method | content-type     | token     | body             |
-  | ---------- | ------ | ---------------- | --------- | ---------------- |
-  | /notfounds | put    | application/json | api-token | []NewHandlerData |
+  | path       | method | content-type     | token     | body                   |
+  | ---------- | ------ | ---------------- | --------- | ---------------------- |
+  | /notfounds | put    | application/json | api-token | json([]NewHandlerData) |
 
 - Forward
 
-  | path      | method | content-type     | token     | body             |
-  | --------- | ------ | ---------------- | --------- | ---------------- |
-  | /forwards | put    | application/json | api-token | []NewHandlerData |
+  | path      | method | content-type     | token     | body                   |
+  | --------- | ------ | ---------------- | --------- | ---------------------- |
+  | /forwards | put    | application/json | api-token | json([]NewHandlerData) |

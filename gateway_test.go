@@ -10,12 +10,12 @@ import (
 func Test_NewGateway(t *testing.T) {
 	gw, err := NewGateway(&NewGatewayData{
 		Listen: ":3390",
-		NotFound: []*NewHandlerData{
+		NotFound: []NewHandlerData{
 			{
 				Name: handler.DefaultNotFoundRegisterName(),
 			},
 		},
-		Intercept: []*NewHandlerData{
+		Intercept: []NewHandlerData{
 			{
 				Name: handler.IPInterceptorRegisterName(),
 				Data: &handler.IPInterceptorData{
@@ -30,7 +30,7 @@ func Test_NewGateway(t *testing.T) {
 				},
 			},
 		},
-		Forward: map[string][]*NewHandlerData{
+		Forward: map[string][]NewHandlerData{
 			"service1": {
 				{
 					Name: handler.DefaultForwarderName(),

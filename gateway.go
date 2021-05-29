@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -38,11 +39,11 @@ type NewGatewayData struct {
 	// Gateway server x509 key file data.
 	X509KeyPEM string `json:"x509KeyPEM"`
 	// Gateway interceptor handler call chain.
-	Intercept []*NewHandlerData `json:"intercept"`
+	Intercept []NewHandlerData `json:"intercept"`
 	// Gateway notFound handler call chain.
-	NotFound []*NewHandlerData `json:"notFound"`
+	NotFound []NewHandlerData `json:"notFound"`
 	// Gateway forward handler call chain.
-	Forward map[string][]*NewHandlerData `json:"forward"`
+	Forward map[string][]NewHandlerData `json:"forward"`
 	// API management server listen address.
 	// If ApiX509CertPEM and ApiX509KeyPEM both are not empty,api server will use TLS.
 	ApiListen string `json:"apiListen"`
@@ -189,7 +190,7 @@ func (gw *Gateway) Close() error {
 }
 
 // Setup forwarder chain.
-func (gw *Gateway) newForward(route string, data []*NewHandlerData) error {
+func (gw *Gateway) newForward(route string, data []NewHandlerData) error {
 	route = handler.TopDir(route)
 	if route == "" {
 		return errors.New(`"forward"."route" must define`)
@@ -221,7 +222,7 @@ func (gw *Gateway) newForward(route string, data []*NewHandlerData) error {
 }
 
 // Setup iterceptor chain.
-func (gw *Gateway) newIntercept(data []*NewHandlerData) error {
+func (gw *Gateway) newIntercept(data []NewHandlerData) error {
 	if len(data) == 0 {
 		return errors.New(`"itercept" must define handler`)
 	}
@@ -240,7 +241,7 @@ func (gw *Gateway) newIntercept(data []*NewHandlerData) error {
 }
 
 // Setup notfound chain.
-func (gw *Gateway) newNotFound(data []*NewHandlerData) error {
+func (gw *Gateway) newNotFound(data []NewHandlerData) error {
 	if len(data) == 0 {
 		return errors.New(`"notfound" must define handler`)
 	}
@@ -265,13 +266,17 @@ func (gw *Gateway) ApiServe() error {
 	}
 	// Setup api router.
 	var rr router.MethodRouter
-	rr.Interceptor = []router.HandleFunc{func(c *router.Context) bool {
+	rr.Intercept = []router.HandleFunc{func(c *router.Context) bool {
 		// Check authentication token.
 		if c.BearerToken() != gw.apiToken {
-			c.Response.WriteHeader(http.StatusFound)
+			c.Res.WriteHeader(http.StatusForbidden)
 			return false
 		}
 		return true
+	}}
+	rr.NotMatch = []router.HandleFunc{func(c *router.Context) bool {
+		c.Res.WriteHeader(http.StatusNotFound)
+		return false
 	}}
 	rr.AddPut("/api/intercepts", gw.ApiPutIntercept)
 	rr.AddPut("/api/notfounds", gw.ApiPutNotFound)
@@ -285,20 +290,93 @@ func (gw *Gateway) ApiServe() error {
 
 // Put new intercept chain.
 func (gw *Gateway) ApiPutIntercept(c *router.Context) bool {
+	data := make([]NewHandlerData, 0)
+	if !readJSON(c, &data) {
+		return false
+	}
+	err := gw.newIntercept(data)
+	if err != nil {
+		c.WriteJSON(http.StatusBadRequest, map[string]string{
+			"error": err.Error(),
+		})
+		return false
+	}
 	return true
 }
 
 // Put new notfound chain.
 func (gw *Gateway) ApiPutNotFound(c *router.Context) bool {
+	data := make([]NewHandlerData, 0)
+	if !readJSON(c, &data) {
+		return false
+	}
+	err := gw.newNotFound(data)
+	if err != nil {
+		c.WriteJSON(http.StatusBadRequest, map[string]string{
+			"error": err.Error(),
+		})
+		return false
+	}
 	return true
 }
 
 // Put new forward chain.
 func (gw *Gateway) ApiPutForward(c *router.Context) bool {
+	data := make(map[string][]NewHandlerData)
+	if !readJSON(c, &data) {
+		return false
+	}
+	for k, v := range data {
+		err := gw.newForward(k, v)
+		if err != nil {
+			c.WriteJSON(http.StatusBadRequest, map[string]string{
+				"error": err.Error(),
+			})
+			return false
+		}
+	}
 	return true
 }
 
 // Put new token.
 func (gw *Gateway) ApiPutToken(c *router.Context) bool {
-	return true
+	data := make(map[string]interface{})
+	if !readJSON(c, data) {
+		return false
+	}
+	val, ok := data["token"]
+	if ok {
+		token, ok := val.(string)
+		if ok {
+			gw.apiToken = token
+			return true
+		}
+	}
+	c.WriteJSON(http.StatusBadRequest, map[string]string{
+		"error": "token must be define as string type",
+	})
+	return false
+}
+
+// Read JSON from body.
+func readJSON(c *router.Context, v interface{}) bool {
+	values, ok := c.Req.Header["Content-Type"]
+	if ok {
+		for _, value := range values {
+			if value == "appcalition/json" {
+				err := json.NewDecoder(c.Req.Body).Decode(value)
+				if err != nil {
+					c.WriteJSON(http.StatusBadRequest, map[string]string{
+						"error": "parse JSON failed",
+					})
+					return false
+				}
+				return true
+			}
+		}
+	}
+	c.WriteJSON(http.StatusBadRequest, map[string]string{
+		"error": "Content-Type muse be set to application/json",
+	})
+	return false
 }
